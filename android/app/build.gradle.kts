@@ -9,12 +9,13 @@ val releaseKeystore = System.getenv("VIDFETCH_KEYSTORE_FILE")
 android {
     namespace = "com.vidfetch.app"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
     defaultConfig {
         applicationId = "com.vidfetch.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.1.4"
+        versionCode = 6
+        versionName = "0.1.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }

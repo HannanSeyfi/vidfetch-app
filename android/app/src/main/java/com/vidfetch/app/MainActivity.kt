@@ -36,15 +36,17 @@ import java.io.File
 import java.util.regex.Pattern
 
 class MainActivity : ComponentActivity() {
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    private val mediaPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val startupPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         val readPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
-        if (ContextCompat.checkSelfPermission(this, readPermission) != PackageManager.PERMISSION_GRANTED) mediaPermission.launch(readPermission)
         val incomingUrl = sharedUrl(intent)
         setContent { VidFetchApp(incomingUrl) }
+        val missingPermissions = buildList {
+            if (ContextCompat.checkSelfPermission(this@MainActivity, readPermission) != PackageManager.PERMISSION_GRANTED) add(readPermission)
+            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (missingPermissions.isNotEmpty()) startupPermissions.launch(missingPermissions.toTypedArray())
     }
     private fun sharedUrl(intent: Intent?): String = if (intent?.action == Intent.ACTION_SEND) URL.matcher(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()).let { if (it.find()) it.group() else "" } else ""
     companion object { private val URL = Pattern.compile("https?://[^\\s]+") }
