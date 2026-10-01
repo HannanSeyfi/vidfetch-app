@@ -2,6 +2,7 @@ package com.vidfetch.app
 
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.Uri
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -11,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -126,6 +128,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun SettingsScreen(modifier: Modifier, darkTheme: Boolean, onDarkThemeChange: (Boolean) -> Unit, loading: Boolean, onUpdate: () -> Unit, message: String?) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(modifier.padding(20.dp).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Dark theme"); Text("Use a dark appearance", style = MaterialTheme.typography.bodySmall) }; Switch(checked = darkTheme, onCheckedChange = onDarkThemeChange) }
@@ -133,6 +136,12 @@ class MainActivity : ComponentActivity() {
         OutlinedButton(enabled = !loading, onClick = onUpdate) { Text("Update extractor") }
         message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         HorizontalDivider(); Text("Downloads are saved in Downloads/VidFetch."); Text("Download content only when you have permission to do so and in accordance with the applicable website's terms and local law.")
+        HorizontalDivider()
+        Text("About", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth().clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/HannanSeyfi"))) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(model = "https://github.com/HannanSeyfi.png?size=128", contentDescription = "Hannan's GitHub profile", modifier = Modifier.size(48.dp))
+            Column(Modifier.padding(start = 12.dp)) { Text("Powered By Hannan", style = MaterialTheme.typography.titleMedium); Text("github.com/HannanSeyfi", style = MaterialTheme.typography.bodySmall) }
+        }
     }
 }
 

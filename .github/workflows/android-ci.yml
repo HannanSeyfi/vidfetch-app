@@ -25,8 +25,12 @@ jobs:
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - run: ./gradlew test assembleDebug
+      - run: ./gradlew test assembleDebug bundleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: vidfetch-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: vidfetch-debug-apks
+          path: android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidfetch-release-bundle
+          path: android/app/build/outputs/bundle/release/app-release.aab
