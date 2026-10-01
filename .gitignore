@@ -19,3 +19,9 @@ cookies.txt
 DerivedData/
 bin/
 obj/
+
+# Local build bootstrap artifacts
+.tools/
+gradle-*.zip
+jdk.zip
+temurin*.zip
