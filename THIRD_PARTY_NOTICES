@@ -1,0 +1,9 @@
+VidFetch includes or depends on third-party components. Their licenses remain with their respective authors.
+
+* yt-dlp — Unlicense (https://github.com/yt-dlp/yt-dlp)
+* youtubedl-android — GPL-3.0 (https://github.com/JunkFood02/youtubedl-android)
+* FFmpeg — LGPL/GPL depending on enabled components (https://ffmpeg.org/legal.html)
+* AndroidX, Jetpack Compose, Material Components, Kotlin coroutines — Apache License 2.0
+* Coil — Apache License 2.0
+
+Before distributing a release, review the exact transitive artifacts and the selected FFmpeg build's licensing obligations.

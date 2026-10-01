@@ -1,0 +1,21 @@
+# Shared local/generated files
+.DS_Store
+.idea/
+*.iml
+local.properties
+.gradle/
+**/build/
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+*.log
+cookies.txt
+*.cookies
+*.token
+*.secrets
+.vscode/
+DerivedData/
+bin/
+obj/
