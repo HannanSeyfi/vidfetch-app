@@ -31,7 +31,6 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         if (isYoutubeUrl(url)) {
             // QuickJS is bundled by youtubedl-android 0.18.1 for yt-dlp's JavaScript challenges.
             addOption("--js-runtimes", "quickjs")
-            addOption("--extractor-args", "youtube:player_client=tv,web_embedded")
         }
     }
     private fun parse(raw: String): VideoInfo {

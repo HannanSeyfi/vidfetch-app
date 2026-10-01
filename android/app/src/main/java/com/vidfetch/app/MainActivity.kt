@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.vidfetch.app.data.extractor.YtDlpRepositoryImpl
-import com.vidfetch.app.data.extractor.isYoutubeUrl
 import com.vidfetch.app.data.storage.DownloadedMedia
 import com.vidfetch.app.data.storage.DownloadedMediaRepository
 import com.vidfetch.app.notification.DownloadNotifier
@@ -47,7 +46,6 @@ class MainActivity : ComponentActivity() {
     private fun sharedUrl(intent: Intent?): String = if (intent?.action == Intent.ACTION_SEND) URL.matcher(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()).let { if (it.find()) it.group() else "" } else ""
     companion object { private val URL = Pattern.compile("https?://[^\\s]+") }
 }
-
 @Composable private fun VidFetchApp(initialUrl: String) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val preferences = remember { context.getSharedPreferences("vidfetch_settings", 0) }
@@ -71,12 +69,12 @@ class MainActivity : ComponentActivity() {
             }, info, selected, loading, message, { selected = it }, {
                 if (!url.startsWith("http://") && !url.startsWith("https://")) message = "Enter a valid http or https URL." else scope.launch {
                     loading = true; message = null; try { info = extractor.analyze(url); selected = qualities(info!!.formats).firstOrNull() } catch (error: Exception) {
-                        if (shouldRefreshExtractor(url, error)) { message = "Refreshing the YouTube extractor…"; extractor.updateExtractor(); info = extractor.analyze(url); selected = qualities(info!!.formats).firstOrNull() } else message = friendlyError(error)
+                        if ("older than 90 days" in error.message.orEmpty()) { message = "The extractor is out of date. Open Settings and choose Update extractor." } else message = friendlyError(error)
                     } finally { loading = false }
                 }
             }) { video -> scope.launch {
                 loading = true; message = null; val before = media.existingPaths()
-                try { val output = File(media.outputDirectory(), "%(title)s.%(ext)s").absolutePath; try { extractor.download(video.webpageUrl, selected?.height, output) { progress -> message = "Downloading… $progress%"; notifier.progress(video.title, progress) } } catch (error: Exception) { if (!shouldRefreshExtractor(video.webpageUrl, error)) throw error; message = "Refreshing the YouTube extractor…"; extractor.updateExtractor(); extractor.download(video.webpageUrl, selected?.height, output) { progress -> message = "Downloading… $progress%"; notifier.progress(video.title, progress) } }; media.scanNewFiles(before); downloads = media.list(); notifier.complete(video.title); message = "Download complete in Downloads/VidFetch." }
+                try { val output = File(media.outputDirectory(), "%(title)s.%(ext)s").absolutePath; extractor.download(video.webpageUrl, selected?.height, output) { progress -> message = "Downloading… $progress%"; notifier.progress(video.title, progress) }; media.scanNewFiles(before); downloads = media.list(); notifier.complete(video.title); message = "Download complete in Downloads/VidFetch." }
                 catch (error: Exception) { notifier.failed(video.title); message = friendlyError(error) } finally { loading = false }
             } }
             1 -> DownloadsScreen(Modifier.padding(padding), downloads, { downloads = media.list() }, media::open, media::share, { item -> media.delete(item); downloads = media.list() }, { item, name -> media.rename(item, name); downloads = media.list() })
@@ -149,14 +147,10 @@ class MainActivity : ComponentActivity() {
 private fun friendlyError(error: Exception): String {
     val detail = error.message.orEmpty()
     return when {
-        "sign in to confirm" in detail.lowercase() || "not a bot" in detail.lowercase() -> "YouTube requires a signed-in or verified session for this video. VidFetch cannot bypass that requirement."
-        "HTTP Error 403" in detail || "Forbidden" in detail -> "This website rejected the request (HTTP 403). VidFetch refreshed yt-dlp automatically; if it continues, the video may require your authorized session or be unavailable for download."
+        "sign in to confirm" in detail.lowercase() || "not a bot" in detail.lowercase() -> "YouTube requires verification for this video. Your YouTube app sign-in is private to that app and cannot be reused by VidFetch."
+        "HTTP Error 403" in detail || "Forbidden" in detail -> "This website rejected the request (HTTP 403). Try Update extractor in Settings; if it continues, YouTube may require verification for this video."
         "older than 90 days" in detail -> "The bundled extractor is outdated. Open Settings and choose Update extractor, then try again."
         else -> "Could not complete this request: ${detail.ifBlank { "extractor error" }}"
     }
 }
 
-private fun shouldRefreshExtractor(url: String, error: Exception): Boolean {
-    val detail = error.message.orEmpty().lowercase()
-    return "older than 90 days" in detail || (isYoutubeUrl(url) && listOf("403", "forbidden", "sign in to confirm", "not a bot", "unsupported").any(detail::contains))
-}
