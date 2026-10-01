@@ -18,7 +18,7 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
     }
     override suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): String = withContext(Dispatchers.IO) {
         val request = YoutubeDLRequest(url).apply { addOption("--no-playlist"); addOption("-f", selectorFor(height)); addOption("--merge-output-format", "mp4"); addOption("-o", outputTemplate); addOption("--newline") }
-        YoutubeDL.getInstance().execute(request) { value, _ -> progress(value.toIntOrNull()?.coerceIn(0, 100) ?: 0) }.out
+        YoutubeDL.getInstance().execute(request) { value, _, _ -> progress(value.toInt().coerceIn(0, 100)) }.out
     }
     private fun parse(raw: String): VideoInfo {
         val json = JSONObject(raw); val items = json.optJSONArray("formats") ?: JSONArray()
