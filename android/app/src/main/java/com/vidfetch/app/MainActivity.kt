@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
     Column(modifier.padding(20.dp).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Dark theme"); Text("Use a dark appearance", style = MaterialTheme.typography.bodySmall) }; Switch(checked = darkTheme, onCheckedChange = onDarkThemeChange) }
-        HorizontalDivider(); Text("Extractor", style = MaterialTheme.typography.titleMedium); Text("Check for a newer yt-dlp release when websites change. Updating does not bypass website access controls.")
+        HorizontalDivider(); Text("Extractor", style = MaterialTheme.typography.titleMedium); Text("Install the newest yt-dlp compatibility build when websites change. Updating does not bypass website access controls.")
         OutlinedButton(enabled = !loading, onClick = onUpdate) { Text("Update extractor") }
         message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         HorizontalDivider(); Text("Downloads are saved in Downloads/VidFetch."); Text("Download content only when you have permission to do so and in accordance with the applicable website's terms and local law.")

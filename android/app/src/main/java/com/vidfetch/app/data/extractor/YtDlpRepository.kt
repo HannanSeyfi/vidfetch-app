@@ -13,7 +13,7 @@ interface YtDlpRepository { suspend fun analyze(url: String): VideoInfo; suspend
 
 class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
     suspend fun updateExtractor(): String = withContext(Dispatchers.IO) {
-        YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE).toString()
+        YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY).toString()
     }
     override suspend fun analyze(url: String): VideoInfo = withContext(Dispatchers.IO) {
         val request = baseRequest(url).apply { addOption("--dump-single-json"); addOption("--skip-download") }
