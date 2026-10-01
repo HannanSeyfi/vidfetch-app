@@ -2,9 +2,14 @@ package com.vidfetch.app
 
 import android.content.ClipboardManager
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,6 +17,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,14 +27,17 @@ import coil.compose.AsyncImage
 import com.vidfetch.app.data.extractor.YtDlpRepositoryImpl
 import com.vidfetch.app.data.storage.DownloadedMedia
 import com.vidfetch.app.data.storage.DownloadedMediaRepository
+import com.vidfetch.app.notification.DownloadNotifier
 import com.vidfetch.app.domain.*
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.regex.Pattern
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         val incomingUrl = sharedUrl(intent)
         setContent { VidFetchApp(incomingUrl) }
     }
@@ -48,7 +57,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable private fun VidFetchScreen(initialUrl: String, darkTheme: Boolean, onDarkThemeChange: (Boolean) -> Unit) {
     val scope = rememberCoroutineScope(); val context = androidx.compose.ui.platform.LocalContext.current
-    val extractor = remember { YtDlpRepositoryImpl(context.applicationContext) }; val media = remember { DownloadedMediaRepository(context.applicationContext) }
+    val extractor = remember { YtDlpRepositoryImpl(context.applicationContext) }; val media = remember { DownloadedMediaRepository(context.applicationContext) }; val notifier = remember { DownloadNotifier(context.applicationContext) }
     var url by remember { mutableStateOf(initialUrl) }; var info by remember { mutableStateOf<VideoInfo?>(null) }; var selected by remember { mutableStateOf<VideoQuality?>(null) }
     var loading by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }; var tab by remember { mutableIntStateOf(0) }; var downloads by remember { mutableStateOf(emptyList<DownloadedMedia>()) }
     LaunchedEffect(tab) { if (tab == 1) downloads = media.list() }
@@ -58,14 +67,16 @@ class MainActivity : ComponentActivity() {
                 url = context.getSystemService(ClipboardManager::class.java)?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
             }, info, selected, loading, message, { selected = it }, {
                 if (!url.startsWith("http://") && !url.startsWith("https://")) message = "Enter a valid http or https URL." else scope.launch {
-                    loading = true; message = null; try { info = extractor.analyze(url); selected = qualities(info!!.formats).firstOrNull() } catch (error: Exception) { message = friendlyError(error) } finally { loading = false }
+                    loading = true; message = null; try { info = extractor.analyze(url); selected = qualities(info!!.formats).firstOrNull() } catch (error: Exception) {
+                        if ("older than 90 days" in error.message.orEmpty()) { extractor.updateExtractor(); info = extractor.analyze(url); selected = qualities(info!!.formats).firstOrNull() } else message = friendlyError(error)
+                    } finally { loading = false }
                 }
             }) { video -> scope.launch {
                 loading = true; message = null; val before = media.existingPaths()
-                try { extractor.download(video.webpageUrl, selected?.height, File(media.outputDirectory(), "%(title)s.%(ext)s").absolutePath) { progress -> message = "Downloading… $progress%" }; media.scanNewFiles(before); downloads = media.list(); message = "Download complete in Downloads/VidFetch." }
-                catch (error: Exception) { message = friendlyError(error) } finally { loading = false }
+                try { extractor.download(video.webpageUrl, selected?.height, File(media.outputDirectory(), "%(title)s.%(ext)s").absolutePath) { progress -> message = "Downloading… $progress%"; notifier.progress(video.title, progress) }; media.scanNewFiles(before); downloads = media.list(); notifier.complete(video.title); message = "Download complete in Downloads/VidFetch." }
+                catch (error: Exception) { notifier.failed(video.title); message = friendlyError(error) } finally { loading = false }
             } }
-            1 -> DownloadsScreen(Modifier.padding(padding), downloads) { downloads = media.list() }
+            1 -> DownloadsScreen(Modifier.padding(padding), downloads, { downloads = media.list() }, media::open, media::share, { item -> media.delete(item); downloads = media.list() }, { item, name -> media.rename(item, name); downloads = media.list() })
             else -> SettingsScreen(Modifier.padding(padding), darkTheme, onDarkThemeChange, loading, { scope.launch { loading = true; message = null; try { message = "Extractor update: ${extractor.updateExtractor()}" } catch (error: Exception) { message = "Could not update the extractor: ${error.message ?: "unknown error"}" } finally { loading = false } } }, message)
         }
     }
@@ -88,12 +99,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun DownloadsScreen(modifier: Modifier, downloads: List<DownloadedMedia>, refresh: () -> Unit) {
+@Composable private fun DownloadsScreen(modifier: Modifier, downloads: List<DownloadedMedia>, refresh: () -> Unit, open: (DownloadedMedia) -> Unit, share: (DownloadedMedia) -> Unit, delete: (DownloadedMedia) -> Unit, rename: (DownloadedMedia, String) -> Unit) {
+    var menuItem by remember { mutableStateOf<DownloadedMedia?>(null) }
+    var renameItem by remember { mutableStateOf<DownloadedMedia?>(null) }
+    var renameText by remember { mutableStateOf("") }
     Column(modifier.padding(20.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Text("Downloads", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f)); TextButton(onClick = refresh) { Text("Refresh") } }
         if (downloads.isEmpty()) Text("No VidFetch downloads found in Downloads/VidFetch. Tap Refresh after a download.")
-        downloads.forEach { item -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text(item.title, style = MaterialTheme.typography.titleMedium); Text(item.size, style = MaterialTheme.typography.bodySmall) } } }
+        downloads.forEach { item ->
+            Card(Modifier.fillMaxWidth().selectable(selected = false, onClick = { open(item) })) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AsyncImage(model = item.file, contentDescription = "Thumbnail for ${item.title}", modifier = Modifier.size(width = 112.dp, height = 64.dp))
+                    Column(Modifier.padding(start = 12.dp).weight(1f)) { Text(item.title, style = MaterialTheme.typography.titleMedium); Text(item.size, style = MaterialTheme.typography.bodySmall) }
+                    Box { IconButton(onClick = { menuItem = item }) { Icon(Icons.Default.MoreVert, contentDescription = "More actions") }
+                        DropdownMenu(expanded = menuItem == item, onDismissRequest = { menuItem = null }) {
+                            DropdownMenuItem(text = { Text("Rename") }, onClick = { renameText = item.file.nameWithoutExtension; renameItem = item; menuItem = null })
+                            DropdownMenuItem(text = { Text("Share") }, onClick = { share(item); menuItem = null })
+                            DropdownMenuItem(text = { Text("Delete") }, onClick = { delete(item); menuItem = null })
+                        }
+                    }
+                }
+            }
+        }
     }
+    renameItem?.let { item -> AlertDialog(onDismissRequest = { renameItem = null }, title = { Text("Rename video") }, text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true, label = { Text("File name") }) }, confirmButton = { TextButton(onClick = { rename(item, renameText); renameItem = null }) { Text("Save") } }, dismissButton = { TextButton(onClick = { renameItem = null }) { Text("Cancel") } }) }
 }
 
 @Composable private fun SettingsScreen(modifier: Modifier, darkTheme: Boolean, onDarkThemeChange: (Boolean) -> Unit, loading: Boolean, onUpdate: () -> Unit, message: String?) {

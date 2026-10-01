@@ -42,6 +42,7 @@ dependencies {
     implementation(libs.androidx.material.icons)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.coil.compose)
+    implementation(libs.coil.video)
     implementation(libs.ytdlp.library)
     implementation(libs.ytdlp.ffmpeg)
     testImplementation(libs.junit)
