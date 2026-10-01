@@ -2,6 +2,12 @@
 
 VidFetch is a privacy-minded, local-first video downloader for content a user is permitted to download. It uses site support provided by yt-dlp and processes media on the user's device; URLs are not sent to a VidFetch service.
 
+## Download for Android
+
+[**Download the latest Android APK**](https://github.com/HannanSeyfi/vidfetch-app/releases/latest/download/app-arm64-v8a-debug.apk)
+
+This APK is for most current Android phones (`arm64-v8a`). GitHub publishes it after each successful build of `main`; Android may ask you to allow installation from your browser or file manager.
+
 ## Platforms
 
 | Platform | Status |
