@@ -28,7 +28,20 @@ jobs:
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - run: ./gradlew test assembleDebug bundleRelease
+      - name: Restore permanent release-signing key
+        if: github.ref == 'refs/heads/main'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.VIDFETCH_SIGNING_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.VIDFETCH_SIGNING_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.VIDFETCH_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.VIDFETCH_SIGNING_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/vidfetch-release.jks"
+          echo "VIDFETCH_KEYSTORE_FILE=$RUNNER_TEMP/vidfetch-release.jks" >> "$GITHUB_ENV"
+          echo "VIDFETCH_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "VIDFETCH_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "VIDFETCH_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+      - run: ./gradlew test assembleDebug assembleRelease bundleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: vidfetch-debug-apks
@@ -41,15 +54,15 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           mkdir -p app/build/outputs/release-assets
-          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk app/build/outputs/release-assets/VidFetch_v8a_0.1.3.apk
-          cp app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk app/build/outputs/release-assets/VidFetch_v7a_0.1.3.apk
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk app/build/outputs/release-assets/VidFetch_v8a_0.1.4.apk
+          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk app/build/outputs/release-assets/VidFetch_v7a_0.1.4.apk
       - name: Publish Android downloads to GitHub Releases
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.3-build.${{ github.run_number }}
-          name: VidFetch v0.1.3 (build ${{ github.run_number }})
+          tag_name: v0.1.4-build.${{ github.run_number }}
+          name: VidFetch v0.1.4 (build ${{ github.run_number }})
           generate_release_notes: true
           files: |
-            android/app/build/outputs/release-assets/VidFetch_v8a_0.1.3.apk
-            android/app/build/outputs/release-assets/VidFetch_v7a_0.1.3.apk
+            android/app/build/outputs/release-assets/VidFetch_v8a_0.1.4.apk
+            android/app/build/outputs/release-assets/VidFetch_v7a_0.1.4.apk

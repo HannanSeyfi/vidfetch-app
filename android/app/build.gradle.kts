@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseKeystore = System.getenv("VIDFETCH_KEYSTORE_FILE")
+
 android {
     namespace = "com.vidfetch.app"
     compileSdk = 36
@@ -11,8 +13,8 @@ android {
         applicationId = "com.vidfetch.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.1.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -29,8 +31,19 @@ android {
             isUniversalApk = false
         }
     }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("VIDFETCH_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VIDFETCH_KEY_ALIAS")
+                keyPassword = System.getenv("VIDFETCH_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
