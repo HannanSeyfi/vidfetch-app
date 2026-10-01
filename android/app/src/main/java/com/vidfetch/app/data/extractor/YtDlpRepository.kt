@@ -12,6 +12,9 @@ import org.json.JSONObject
 interface YtDlpRepository { suspend fun analyze(url: String): VideoInfo; suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): String }
 
 class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
+    suspend fun updateExtractor(): String = withContext(Dispatchers.IO) {
+        YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE).toString()
+    }
     override suspend fun analyze(url: String): VideoInfo = withContext(Dispatchers.IO) {
         val request = YoutubeDLRequest(url).apply { addOption("--dump-single-json"); addOption("--no-playlist"); addOption("--skip-download") }
         parse(YoutubeDL.getInstance().execute(request).out)
