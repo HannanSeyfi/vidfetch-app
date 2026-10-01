@@ -14,8 +14,8 @@ android {
         applicationId = "com.vidfetch.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 8
+        versionName = "0.1.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -45,9 +45,10 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // The embedded yt-dlp/Python/FFmpeg runtime is loaded dynamically. Keep the release
+            // bytecode unshrunk until explicit keep rules are validated on a physical device.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
