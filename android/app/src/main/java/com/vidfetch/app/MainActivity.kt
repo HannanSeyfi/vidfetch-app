@@ -36,17 +36,19 @@ import java.io.File
 import java.util.regex.Pattern
 
 class MainActivity : ComponentActivity() {
-    private val startupPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    private val mediaPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val readPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
         val incomingUrl = sharedUrl(intent)
         setContent { VidFetchApp(incomingUrl) }
-        val missingPermissions = buildList {
-            if (ContextCompat.checkSelfPermission(this@MainActivity, readPermission) != PackageManager.PERMISSION_GRANTED) add(readPermission)
-            if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        if (missingPermissions.isNotEmpty()) startupPermissions.launch(missingPermissions.toTypedArray())
+    }
+    fun requestMediaAccess() {
+        val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) mediaPermission.launch(permission)
+    }
+    fun requestNotificationAccess() {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
     private fun sharedUrl(intent: Intent?): String = if (intent?.action == Intent.ACTION_SEND) URL.matcher(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()).let { if (it.find()) it.group() else "" } else ""
     companion object { private val URL = Pattern.compile("https?://[^\\s]+") }
@@ -67,7 +69,7 @@ class MainActivity : ComponentActivity() {
     var url by remember { mutableStateOf(initialUrl) }; var info by remember { mutableStateOf<VideoInfo?>(null) }; var selected by remember { mutableStateOf<VideoQuality?>(null) }
     var loading by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }; var tab by remember { mutableIntStateOf(0) }; var downloads by remember { mutableStateOf(emptyList<DownloadedMedia>()) }
     LaunchedEffect(tab) { if (tab == 1) downloads = media.list() }
-    Scaffold(bottomBar = { NavigationBar { listOf("Home", "Downloads", "Settings").forEachIndexed { index, label -> NavigationBarItem(selected = index == tab, onClick = { tab = index }, icon = {}, label = { Text(label) }) } } }) { padding ->
+    Scaffold(bottomBar = { NavigationBar { listOf("Home", "Downloads", "Settings").forEachIndexed { index, label -> NavigationBarItem(selected = index == tab, onClick = { tab = index; if (index == 1) (context as? MainActivity)?.requestMediaAccess() }, icon = {}, label = { Text(label) }) } } }) { padding ->
         when (tab) {
             0 -> HomeScreen(Modifier.padding(padding), url, { url = it }, {
                 url = context.getSystemService(ClipboardManager::class.java)?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
@@ -77,7 +79,7 @@ class MainActivity : ComponentActivity() {
                         if ("older than 90 days" in error.message.orEmpty()) { message = "The extractor is out of date. Open Settings and choose Update extractor." } else message = friendlyError(error)
                     } finally { loading = false }
                 }
-            }) { video -> scope.launch {
+            }) { video -> (context as? MainActivity)?.requestNotificationAccess(); scope.launch {
                 loading = true; message = null; val before = media.existingPaths()
                 try { val output = File(media.outputDirectory(), "%(title)s.%(ext)s").absolutePath; extractor.download(video.webpageUrl, selected?.height, output) { progress -> message = "Downloading… $progress%"; notifier.progress(video.title, progress) }; media.scanNewFiles(before); downloads = media.list(); notifier.complete(video.title); message = "Download complete in Downloads/VidFetch." }
                 catch (error: Exception) { notifier.failed(video.title); message = friendlyError(error) } finally { loading = false }
