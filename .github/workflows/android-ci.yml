@@ -41,15 +41,15 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           mkdir -p app/build/outputs/release-assets
-          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk app/build/outputs/release-assets/VidFetch_v8a_0.1.0.apk
-          cp app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk app/build/outputs/release-assets/VidFetch_v7a_0.1.0.apk
+          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk app/build/outputs/release-assets/VidFetch_v8a_0.1.1.apk
+          cp app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk app/build/outputs/release-assets/VidFetch_v7a_0.1.1.apk
       - name: Publish Android downloads to GitHub Releases
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.${{ github.run_number }}
-          name: VidFetch v0.1.${{ github.run_number }}
+          tag_name: v0.1.1-build.${{ github.run_number }}
+          name: VidFetch v0.1.1 (build ${{ github.run_number }})
           generate_release_notes: true
           files: |
-            android/app/build/outputs/release-assets/VidFetch_v8a_0.1.0.apk
-            android/app/build/outputs/release-assets/VidFetch_v7a_0.1.0.apk
+            android/app/build/outputs/release-assets/VidFetch_v8a_0.1.1.apk
+            android/app/build/outputs/release-assets/VidFetch_v7a_0.1.1.apk

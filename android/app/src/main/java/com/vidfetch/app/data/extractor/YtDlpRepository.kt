@@ -16,12 +16,23 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE).toString()
     }
     override suspend fun analyze(url: String): VideoInfo = withContext(Dispatchers.IO) {
-        val request = YoutubeDLRequest(url).apply { addOption("--dump-single-json"); addOption("--no-playlist"); addOption("--skip-download") }
+        val request = baseRequest(url).apply { addOption("--dump-single-json"); addOption("--skip-download") }
         parse(YoutubeDL.getInstance().execute(request).out)
     }
     override suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): String = withContext(Dispatchers.IO) {
-        val request = YoutubeDLRequest(url).apply { addOption("--no-playlist"); addOption("-f", selectorFor(height)); addOption("--merge-output-format", "mp4"); addOption("-o", outputTemplate); addOption("--newline") }
+        val request = baseRequest(url).apply { addOption("-f", selectorFor(height)); addOption("--merge-output-format", "mp4"); addOption("-o", outputTemplate); addOption("--newline") }
         YoutubeDL.getInstance().execute(request) { value, _, _ -> progress(value.toInt().coerceIn(0, 100)) }.out
+    }
+    private fun baseRequest(url: String) = YoutubeDLRequest(url).apply {
+        addOption("--no-playlist")
+        addOption("--retries", "10")
+        addOption("--fragment-retries", "10")
+        addOption("--socket-timeout", "30")
+        if (isYoutubeUrl(url)) {
+            // QuickJS is bundled by youtubedl-android 0.18.1 for yt-dlp's JavaScript challenges.
+            addOption("--js-runtimes", "quickjs")
+            addOption("--extractor-args", "youtube:player_client=tv,web_embedded")
+        }
     }
     private fun parse(raw: String): VideoInfo {
         val json = JSONObject(raw); val items = json.optJSONArray("formats") ?: JSONArray()
@@ -30,3 +41,5 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
     }
     private fun JSONObject.toFormat() = VideoFormat(optString("format_id"), optInt("height").takeIf { it > 0 }, optInt("width").takeIf { it > 0 }, optDouble("fps").takeIf { !it.isNaN() }, optString("ext").ifBlank { null }, optString("vcodec").ifBlank { null }, optString("acodec").ifBlank { null }, optLong("filesize").takeIf { it > 0 }, optLong("filesize_approx").takeIf { it > 0 }, optDouble("tbr").takeIf { !it.isNaN() }, optString("vcodec") !in listOf("", "none"), optString("acodec") !in listOf("", "none"))
 }
+
+fun isYoutubeUrl(url: String): Boolean = Regex("^https?://([a-z0-9-]+\\.)?(youtube\\.com|youtu\\.be)/", RegexOption.IGNORE_CASE).containsMatchIn(url)

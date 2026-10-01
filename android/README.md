@@ -16,8 +16,8 @@ cd android
 ./gradlew assembleDebug
 ```
 
-Windows: `gradlew.bat test` and `gradlew.bat assembleDebug`. The debug APK is `app/build/outputs/apk/debug/app-debug.apk`.
+Windows: `gradlew.bat test` and `gradlew.bat assembleDebug`. The debug APKs are `app/build/outputs/apk/debug/app-arm64-v8a-debug.apk` and `app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk`.
 
 ## Limitations
 
-The selected wrapper bundles yt-dlp and FFmpeg, does not need Python or Termux, and supports arm64-v8a/x86_64. Extractors change frequently: update the wrapper dependency after reviewing its release notes and licensing. Authentication-restricted and TLS-fingerprint-protected sites may need users' own cookies; VidFetch does not bypass access controls.
+The selected wrapper bundles yt-dlp, FFmpeg, and QuickJS, so it does not need Python, Termux, or a separate Deno installation. VidFetch enables QuickJS and yt-dlp's supported YouTube fallback clients, retries temporary network errors, and refreshes the extractor once when a relevant YouTube error occurs. Extractors change frequently: update the wrapper dependency after reviewing its release notes and licensing. Authentication-restricted and TLS-fingerprint-protected sites may still require a user's authorized session; VidFetch does not bypass access controls.
