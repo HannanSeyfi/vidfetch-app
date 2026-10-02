@@ -21,6 +21,7 @@ data class DownloadedMedia(
     val sizeBytes: Long,
     val modifiedAt: Long,
     val legacyFile: File? = null,
+    val pending: Boolean = false,
 ) {
     val id: String get() = uri.toString()
     val size: String get() = formatBytes(sizeBytes)
@@ -39,7 +40,7 @@ class DownloadedMediaRepository(private val context: Context) {
         val legacy = directory.listFiles().orEmpty()
             .filter { it.isFile && it.canRead() && it.extension.lowercase() in videoExtensions && it.name !in indexedNames }
             .map(::legacyItem)
-        return (indexed + legacy).sortedByDescending { it.modifiedAt }
+        return (indexed.filterNot { it.pending } + legacy).sortedByDescending { it.modifiedAt }
     }
 
     private fun legacyItem(file: File) = DownloadedMedia(
@@ -59,6 +60,7 @@ class DownloadedMediaRepository(private val context: Context) {
             MediaStore.Downloads.DISPLAY_NAME,
             MediaStore.Downloads.SIZE,
             MediaStore.Downloads.DATE_MODIFIED,
+            MediaStore.Downloads.IS_PENDING,
         )
         val path = "${Environment.DIRECTORY_DOWNLOADS}/VidFetch/"
         resolver.query(collection, columns, "${MediaStore.Downloads.RELATIVE_PATH} = ?", arrayOf(path), null)?.use { cursor ->
@@ -66,6 +68,7 @@ class DownloadedMediaRepository(private val context: Context) {
             val name = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
             val size = cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)
             val modified = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_MODIFIED)
+            val pending = cursor.getColumnIndexOrThrow(MediaStore.Downloads.IS_PENDING)
             while (cursor.moveToNext()) {
                 val title = cursor.getString(name) ?: continue
                 if (title.substringAfterLast('.', "").lowercase() !in videoExtensions) continue
@@ -74,6 +77,7 @@ class DownloadedMediaRepository(private val context: Context) {
                     title = title,
                     sizeBytes = cursor.getLong(size),
                     modifiedAt = cursor.getLong(modified) * 1000,
+                    pending = cursor.getInt(pending) != 0,
                 )
             }
         }
@@ -82,7 +86,11 @@ class DownloadedMediaRepository(private val context: Context) {
 
     fun workingDirectory(): File {
         val root = requireNotNull(context.getExternalFilesDir(null)) { "App storage is unavailable." }
-        val folder = File(root, "downloads/${System.currentTimeMillis()}-${java.util.UUID.randomUUID()}")
+        val workRoot = File(root, "downloads")
+        check(workRoot.isDirectory || workRoot.mkdirs()) { "Could not prepare download storage." }
+        val staleBefore = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+        workRoot.listFiles().orEmpty().filter { it.isDirectory && it.lastModified() < staleBefore }.forEach { it.deleteRecursively() }
+        val folder = File(workRoot, "${System.currentTimeMillis()}-${java.util.UUID.randomUUID()}")
         check(folder.mkdirs()) { "Could not prepare download storage." }
         return folder
     }
