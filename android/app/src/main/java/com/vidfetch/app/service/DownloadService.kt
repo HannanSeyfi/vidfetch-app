@@ -30,7 +30,7 @@ object DownloadState {
     private val mutable = MutableStateFlow(DownloadProgress())
     val progress = mutable.asStateFlow()
 
-    fun started(title: String) { mutable.value = DownloadProgress(active = true, title = title) }
+    fun started(title: String) { mutable.value = DownloadProgress(active = true, title = title, completion = mutable.value.completion) }
     fun advanced(percent: Int) { mutable.value = mutable.value.copy(percent = percent) }
     fun finished(message: String) {
         mutable.value = mutable.value.copy(active = false, percent = 100, message = message, completion = mutable.value.completion + 1)

@@ -37,7 +37,7 @@ class DownloadedMediaRepository(private val context: Context) {
         val indexed = if (Build.VERSION.SDK_INT >= 29) listIndexed() else emptyList()
         // Files made by older VidFetch versions may not have a MediaStore owner or row.
         val indexedNames = indexed.mapTo(HashSet()) { it.title }
-        val legacy = directory.listFiles().orEmpty()
+        val legacy = runCatching { directory.listFiles().orEmpty() }.getOrDefault(emptyArray())
             .filter { it.isFile && it.canRead() && it.extension.lowercase() in videoExtensions && it.name !in indexedNames }
             .map(::legacyItem)
         return (indexed.filterNot { it.pending } + legacy).sortedByDescending { it.modifiedAt }
