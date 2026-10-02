@@ -1,10 +1,10 @@
 # VidFetch for Android
 
-Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. The UI is MVVM-ready with a dedicated `YtDlpRepository`; extractor work is off the main thread. The app uses the maintained `io.github.junkfood02.youtubedl-android` 0.18.1 wrapper and its bundled FFmpeg module, both local on-device.
+Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.2.0 uses a ViewModel for screen state, a foreground service for user-started downloads, and a dedicated `YtDlpRepository` for off-main-thread extraction. The app uses `io.github.junkfood02.youtubedl-android` 0.18.1 and its bundled FFmpeg module, both local on-device.
 
 ## Storage and privacy
 
-The intended final public destination is `Downloads/VidFetch/` via MediaStore; intermediate media belongs in app-private storage. No remote VidFetch server, analytics, or advertising SDK is used. Optional future cookie import must use SAF and private storage only.
+yt-dlp writes intermediate files to app-specific storage. Completed videos are published to `Downloads/VidFetch/` through MediaStore on Android 10+; Android 7–9 use the public folder with the legacy storage permission. The Downloads screen also looks for accessible videos saved by earlier VidFetch versions. Local video frames are decoded for thumbnails with Coil; files that cannot be decoded show a fallback icon. No remote VidFetch server, analytics, or advertising SDK is used.
 
 ## Build
 
@@ -21,3 +21,5 @@ Windows: `gradlew.bat test` and `gradlew.bat assembleDebug`. The debug APKs are 
 ## Limitations
 
 The selected wrapper bundles yt-dlp, FFmpeg, and QuickJS, so it does not need Python, Termux, or a separate Deno installation. VidFetch enables QuickJS and retries temporary network errors. It leaves YouTube client selection to yt-dlp's current defaults so the extractor can choose the best supported formats. Extractors change frequently: update the wrapper dependency after reviewing its release notes and licensing. Authentication-restricted and TLS-fingerprint-protected sites may still require a user's authorized session; VidFetch does not bypass access controls.
+
+Downloads run while the foreground service remains active, but do not resume after a force-stop, reboot, or process termination. The app lists its own MediaStore downloads; files from an earlier installation may require importing through the system file picker in a future update.
