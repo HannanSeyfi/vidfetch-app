@@ -1,10 +1,12 @@
 # VidFetch for Android
 
-Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.2.0 uses a ViewModel for screen state, a foreground service for user-started downloads, and a dedicated `YtDlpRepository` for off-main-thread extraction. The app uses `io.github.junkfood02.youtubedl-android` 0.18.1 and its bundled FFmpeg module, both local on-device.
+Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.2.1 uses a ViewModel for screen state, a foreground service for user-started downloads, and a dedicated `YtDlpRepository` for off-main-thread extraction. The app uses `io.github.junkfood02.youtubedl-android` 0.18.1 and its bundled FFmpeg module, both local on-device.
 
 ## Storage and privacy
 
 yt-dlp writes intermediate files to app-specific storage. Completed videos are published to `Downloads/VidFetch/` through MediaStore on Android 10+; Android 7–9 use the public folder with the legacy storage permission. The Downloads screen also looks for accessible videos saved by earlier VidFetch versions. Local video frames are decoded for thumbnails with Coil; files that cannot be decoded show a fallback icon. No remote VidFetch server, analytics, or advertising SDK is used.
+
+The last Settings row opens the author's Telegram profile through the `tg:` app link, with a `t.me` fallback when Telegram is unavailable. The account name is not displayed in the Settings UI.
 
 ## Build
 

@@ -1,7 +1,9 @@
 package com.vidfetch.app
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
@@ -392,6 +395,26 @@ class MainActivity : ComponentActivity() {
             Text("About", style = MaterialTheme.typography.titleMedium)
             AssistChip(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/HannanSeyfi"))) }, label = { Text("Powered by Hannan") })
             Text("Download content only when you have permission and in accordance with the website's terms and local law.", style = MaterialTheme.typography.bodySmall)
+        }
+        HorizontalDivider()
+        Row(Modifier.fillMaxWidth().clickable { openTelegramContact(context) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Contact me", style = MaterialTheme.typography.titleMedium)
+                Text("Open Telegram", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Default.OpenInNew, contentDescription = null)
+        }
+    }
+}
+
+private fun openTelegramContact(context: Context) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("tg://resolve?domain=Hannanlive&profile")))
+    } catch (_: ActivityNotFoundException) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/Hannanlive?profile")))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "Telegram is unavailable on this device.", Toast.LENGTH_SHORT).show()
         }
     }
 }
