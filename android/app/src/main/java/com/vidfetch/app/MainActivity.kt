@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -30,6 +31,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,12 +39,11 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -79,8 +80,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -393,17 +397,48 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("About", style = MaterialTheme.typography.titleMedium)
-            AssistChip(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/HannanSeyfi"))) }, label = { Text("Powered by Hannan") })
+            Surface(
+                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/HannanSeyfi"))) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            ) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SubcomposeAsyncImage(
+                        model = "https://github.com/HannanSeyfi.png?size=128",
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(40.dp).clip(CircleShape),
+                        loading = { GitHubAvatarFallback() },
+                        error = { GitHubAvatarFallback() },
+                    )
+                    Spacer(Modifier.size(12.dp))
+                    Text("Powered by Hannan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+            }
             Text("Download content only when you have permission and in accordance with the website's terms and local law.", style = MaterialTheme.typography.bodySmall)
         }
         HorizontalDivider()
-        Row(Modifier.fillMaxWidth().clickable { openTelegramContact(context) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Contact me", style = MaterialTheme.typography.titleMedium)
-                Text("Open Telegram", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(
+            onClick = { openTelegramContact(context) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF229ED9),
+            contentColor = Color.White,
+        ) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_telegram), contentDescription = null, modifier = Modifier.size(40.dp))
+                Spacer(Modifier.size(12.dp))
+                Text("Contact me", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
-            Icon(Icons.Default.OpenInNew, contentDescription = null)
         }
+    }
+}
+
+@Composable private fun GitHubAvatarFallback() {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
