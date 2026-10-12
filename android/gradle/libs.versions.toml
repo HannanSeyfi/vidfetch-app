@@ -7,7 +7,6 @@ activityCompose = "1.10.0"
 composeBom = "2025.01.00"
 coroutines = "1.9.0"
 coil = "2.7.0"
-ytdlp = "0.18.1"
 junit = "4.13.2"
 
 [libraries]
@@ -25,8 +24,6 @@ androidx-material-icons = { module = "androidx.compose.material:material-icons-e
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 coil-video = { module = "io.coil-kt:coil-video", version.ref = "coil" }
-ytdlp-library = { module = "io.github.junkfood02.youtubedl-android:library", version.ref = "ytdlp" }
-ytdlp-ffmpeg = { module = "io.github.junkfood02.youtubedl-android:ffmpeg", version.ref = "ytdlp" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

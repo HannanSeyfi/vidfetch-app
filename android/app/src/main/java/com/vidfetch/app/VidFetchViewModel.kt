@@ -1,9 +1,12 @@
 package com.vidfetch.app
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vidfetch.app.data.extractor.YtDlpRepositoryImpl
+import com.vidfetch.app.data.cookies.CookieSite
+import com.vidfetch.app.data.cookies.SiteCookieStore
 import com.vidfetch.app.data.storage.DownloadedMedia
 import com.vidfetch.app.data.storage.DownloadedMediaRepository
 import com.vidfetch.app.domain.VideoInfo
@@ -11,6 +14,7 @@ import com.vidfetch.app.domain.VideoQuality
 import com.vidfetch.app.domain.qualities
 import com.vidfetch.app.service.DownloadState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
@@ -28,11 +32,16 @@ data class VidFetchUiState(
     val downloads: List<DownloadedMedia> = emptyList(),
     val downloadsLoading: Boolean = false,
     val downloadsMessage: String? = null,
+    val cookieSites: List<CookieSite> = emptyList(),
+    val importingCookies: Boolean = false,
+    val cookieMessage: String? = null,
+    val runtimeVersions: String = "yt-dlp ${BuildConfig.BUNDLED_YTDLP_VERSION}",
 )
 
 class VidFetchViewModel(application: Application) : AndroidViewModel(application) {
     private val extractor = YtDlpRepositoryImpl(application)
     private val media = DownloadedMediaRepository(application)
+    private val cookies = SiteCookieStore(application)
     private val mutable = MutableStateFlow(VidFetchUiState())
     val state = mutable.asStateFlow()
     private var refreshGeneration = 0
@@ -40,6 +49,12 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
 
     init {
         refreshDownloads()
+        refreshCookieSites()
+        viewModelScope.launch {
+            try { mutable.update { it.copy(runtimeVersions = extractor.runtimeVersions()) } }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { mutable.update { it.copy(message = "Could not initialize download engine: ${error.message}") } }
+        }
         viewModelScope.launch {
             var lastCompletion = DownloadState.progress.value.completion
             DownloadState.progress.collect { progress ->
@@ -70,7 +85,7 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
             mutable.update { it.copy(message = "Enter a valid http or https URL.") }
             return
         }
-        if (state.value.analyzing || DownloadState.progress.value.active) return
+        if (state.value.analyzing || state.value.updating || state.value.importingCookies || DownloadState.progress.value.active) return
         viewModelScope.launch {
             mutable.update { it.copy(analyzing = true, info = null, selected = null, message = null) }
             try {
@@ -78,6 +93,8 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
                 if (state.value.url.trim() == url) {
                     mutable.update { it.copy(info = info, selected = qualities(info.formats).firstOrNull()) }
                 }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 mutable.update { it.copy(message = friendlyError(error)) }
             } finally {
@@ -125,18 +142,53 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateExtractor() {
-        if (state.value.updating || DownloadState.progress.value.active) return
+        if (state.value.updating || state.value.analyzing || DownloadState.progress.value.active) return
         viewModelScope.launch {
             mutable.update { it.copy(updating = true, message = null) }
             try {
                 val result = extractor.updateExtractor()
-                mutable.update { it.copy(message = "Extractor update: $result") }
+                val versions = extractor.runtimeVersions()
+                mutable.update { it.copy(message = "Extractor update: $result", runtimeVersions = versions) }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 mutable.update { it.copy(message = "Could not update the extractor: ${error.message ?: "unknown error"}") }
             } finally {
                 mutable.update { it.copy(updating = false) }
             }
         }
+    }
+
+    private fun refreshCookieSites() { mutable.update { it.copy(cookieSites = cookies.list()) } }
+
+    fun importCookies(site: String, uri: Uri) {
+        if (state.value.importingCookies) return
+        viewModelScope.launch {
+            mutable.update { it.copy(importingCookies = true, cookieMessage = null) }
+            try {
+                val host = withContext(Dispatchers.IO) {
+                    val input = getApplication<Application>().contentResolver.openInputStream(uri)
+                        ?: throw IllegalArgumentException("Could not open that cookie file.")
+                    input.use { cookies.importFile(site, it) }
+                }
+                refreshCookieSites()
+                mutable.update { it.copy(cookieMessage = "Cookies enabled for $host.", info = null, selected = null) }
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) { mutable.update { it.copy(cookieMessage = error.message ?: "Could not import cookies.") } }
+            finally { mutable.update { it.copy(importingCookies = false) } }
+        }
+    }
+
+    fun setCookiesEnabled(host: String, enabled: Boolean) {
+        cookies.setEnabled(host, enabled)
+        refreshCookieSites()
+        mutable.update { it.copy(info = null, selected = null) }
+    }
+
+    fun deleteCookies(host: String) {
+        cookies.delete(host)
+        refreshCookieSites()
+        mutable.update { it.copy(cookieMessage = "Cookies deleted for $host.", info = null, selected = null) }
     }
 }
 

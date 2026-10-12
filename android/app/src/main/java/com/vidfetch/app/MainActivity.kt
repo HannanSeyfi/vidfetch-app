@@ -197,7 +197,7 @@ class MainActivity : ComponentActivity() {
             when (tab) {
                 0 -> HomeScreen(Modifier.padding(padding), state, progress, model::setUrl, model::setSelected, model::analyze, startDownload)
                 1 -> DownloadsScreen(Modifier.padding(padding), state, model::refreshDownloads, model::open, model::share, model::delete, model::rename)
-                else -> SettingsScreen(Modifier.padding(padding), darkTheme, { darkTheme = it; preferences.edit().putBoolean("dark_theme", it).apply() }, state, progress, model::updateExtractor)
+                else -> SettingsScreen(Modifier.padding(padding), darkTheme, { darkTheme = it; preferences.edit().putBoolean("dark_theme", it).apply() }, state, progress, model::updateExtractor, model::importCookies, model::setCookiesEnabled, model::deleteCookies)
             }
         }
     }
@@ -231,7 +231,7 @@ class MainActivity : ComponentActivity() {
                 val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip
                 setUrl(clip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty())
             }) { Text("Paste") }
-            Button(onClick = analyze, enabled = !state.analyzing && !progress.active && !state.updating) { Text("Analyze") }
+            Button(onClick = analyze, enabled = !state.analyzing && !progress.active && !state.updating && !state.importingCookies) { Text("Analyze") }
         }
         if (state.analyzing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Checking available formats…") }
         state.message?.let { MessageCard(it) }
@@ -262,7 +262,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    Button(onClick = { download(video, state.selected?.height) }, enabled = !progress.active && !state.analyzing && !state.updating, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Button(onClick = { download(video, state.selected?.height) }, enabled = !progress.active && !state.analyzing && !state.updating && !state.importingCookies, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         Icon(Icons.Default.Download, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
                         Text("Download video")
@@ -373,8 +373,17 @@ class MainActivity : ComponentActivity() {
     state: VidFetchUiState,
     progress: DownloadProgress,
     update: () -> Unit,
+    importCookies: (String, Uri) -> Unit,
+    setCookiesEnabled: (String, Boolean) -> Unit,
+    deleteCookies: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    var cookieDomain by rememberSaveable { mutableStateOf("") }
+    var pendingCookieDomain by rememberSaveable { mutableStateOf("") }
+    val cookiePicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importCookies(pendingCookieDomain, uri)
+    }
+    val cookiesEditable = !state.importingCookies && !state.analyzing && !state.updating && !progress.active
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineLarge)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -384,10 +393,38 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Extractor", style = MaterialTheme.typography.titleMedium)
+            Text(state.runtimeVersions, style = MaterialTheme.typography.bodySmall)
             Text("Update site compatibility when a video stops working.")
             OutlinedButton(onClick = update, enabled = !state.updating && !state.analyzing && !progress.active) { Text(if (state.updating) "Updating…" else "Update extractor") }
             if (state.updating) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.message?.let { MessageCard(it) }
+        }
+        HorizontalDivider()
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Site cookies (optional)", style = MaterialTheme.typography.titleMedium)
+            Text("Public videos work without imported cookies. Add your own cookies.txt for a site that needs your signed-in session.")
+            OutlinedTextField(
+                value = cookieDomain, onValueChange = { cookieDomain = it },
+                label = { Text("Website domain") }, placeholder = { Text("youtube.com") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = cookiesEditable,
+            )
+            OutlinedButton(onClick = {
+                pendingCookieDomain = cookieDomain.trim()
+                cookiePicker.launch(arrayOf("*/*"))
+            }, enabled = cookiesEditable && cookieDomain.isNotBlank()) { Text(if (state.importingCookies) "Importing…" else "Import / replace cookies.txt") }
+            state.cookieSites.forEach { site ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(site.host, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            Switch(checked = site.enabled, onCheckedChange = { setCookiesEnabled(site.host, it) }, enabled = cookiesEditable)
+                        }
+                        TextButton(onClick = { deleteCookies(site.host) }, enabled = cookiesEditable) { Text("Delete cookies") }
+                    }
+                }
+            }
+            state.cookieMessage?.let { MessageCard(it) }
+            Text("Cookies stay in private storage on this phone and are excluded from backup. Only cookies belonging to the chosen site are imported.", style = MaterialTheme.typography.bodySmall)
         }
         HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -397,6 +434,7 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("About", style = MaterialTheme.typography.titleMedium)
+            Text("VidFetch ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall)
             Surface(
                 onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/HannanSeyfi"))) },
                 modifier = Modifier.fillMaxWidth(),
