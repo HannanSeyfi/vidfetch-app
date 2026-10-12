@@ -1,21 +1,17 @@
 package com.vidfetch.app.data.extractor
 
 import android.content.Context
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.vidfetch.app.BuildConfig
 import com.vidfetch.app.data.cookies.SiteCookieStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
 import java.io.File
 import java.net.ServerSocket
 import kotlin.concurrent.thread
 
-@RunWith(AndroidJUnit4::class)
 class ExtractorRuntimeTest {
-    private val context: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private val context: Context get() = ExtractorInstrumentationRunner.active.targetContext
 
     @Test fun packagedInterpreterNetworkingJavascriptAndFfmpegRun() = runBlocking {
         assertTrue(ExtractorRuntime.versions(context).contains(BuildConfig.BUNDLED_YTDLP_VERSION))
@@ -53,7 +49,8 @@ class ExtractorRuntimeTest {
                     val info = repository.analyze(url)
                     assertTrue(info.title.isNotBlank())
                     val destination = File(folder, "download-${path.substringAfterLast('.')}.mp4")
-                    repository.download(url, if (path.endsWith("mpd")) 360 else null, destination.absolutePath) { }
+                    val result = repository.download(url, if (path.endsWith("mpd")) 360 else null, destination.absolutePath) { }
+                    if (path.endsWith("mpd")) assertEquals(240, result.height)
                     assertTrue(destination.exists() && destination.length() > 1000)
                     val probe = ExtractorRuntime.python(context, listOf("-c", """
                         import subprocess
@@ -87,7 +84,7 @@ class ExtractorRuntimeTest {
     }
 
     @Test fun userProvidedYoutubeLink() = runBlocking {
-        val url = InstrumentationRegistry.getArguments().getString("liveUrl") ?: return@runBlocking
+        val url = ExtractorInstrumentationRunner.active.arguments.getString("liveUrl") ?: return@runBlocking
         val repository = YtDlpRepositoryImpl(context)
         val info = repository.analyze(url)
         assertEquals("G83NKJCd4VY", info.id)

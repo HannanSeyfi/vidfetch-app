@@ -67,7 +67,7 @@ android {
         versionName = "0.3.0"
         buildConfigField("String", "BUNDLED_YTDLP_VERSION", "\"2026.10.10.233141\"")
         buildConfigField("String", "RUNTIME_COMMIT", "\"35f2609d80ce26b6683a0b2b6bc52f32efe4c81c\"")
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "com.vidfetch.app.data.extractor.ExtractorInstrumentationRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
@@ -82,7 +82,7 @@ android {
         jniLibs {
             useLegacyPackaging = true
             keepDebugSymbols += "**/*.so"
-            excludes += if (emulatorBuild) listOf("**/arm64-v8a/**", "**/armeabi-v7a/**") else listOf("**/x86_64/**")
+            excludes += if (emulatorBuild) listOf("**/arm64-v8a/**", "**/armeabi-v7a/**", "**/x86/**") else listOf("**/x86_64/**", "**/x86/**")
         }
     }
     splits {
@@ -135,7 +135,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
     testImplementation(libs.junit)
-    androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }
