@@ -1,6 +1,7 @@
 package com.vidfetch.app.data.extractor
 
 import android.content.Context
+import android.system.Os
 import com.vidfetch.app.BuildConfig
 import com.vidfetch.app.R
 import kotlinx.coroutines.Dispatchers
@@ -82,14 +83,15 @@ internal object ExtractorRuntime {
         if (initialized) return
         val root = root(context).apply { mkdirs() }
         val marker = File(root, "runtime-version")
-        if (!marker.exists() || marker.readText() != BuildConfig.RUNTIME_COMMIT) {
+        val runtimeVersion = "${BuildConfig.RUNTIME_COMMIT}:zip-links-v1"
+        if (!marker.exists() || marker.readText() != runtimeVersion) {
             val native = File(context.applicationInfo.nativeLibraryDir)
             unpack(File(native, "libpython.zip.so"), File(root, "python"))
             unpack(File(native, "libffmpeg.zip.so"), File(root, "ffmpeg"))
             // Do not shadow the platform liblzma used by Android's unwinder.
             File(root, "python/usr/lib/liblzma.so").delete()
             File(root, "ffmpeg/usr/lib/liblzma.so").delete()
-            marker.writeText(BuildConfig.RUNTIME_COMMIT)
+            marker.writeText(runtimeVersion)
         }
         val target = binary(context)
         val legacy = File(context.noBackupFilesDir, "youtubedl-android/yt-dlp/yt-dlp")
@@ -106,16 +108,28 @@ internal object ExtractorRuntime {
         destination.deleteRecursively()
         destination.mkdirs()
         val prefix = destination.canonicalPath + File.separator
+        val linkNames = runtimeArchiveLinks(archive)
+        val links = mutableListOf<Pair<File, String>>()
         ZipInputStream(archive.inputStream().buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 val output = File(destination, entry.name)
                 require(output.canonicalPath.startsWith(prefix)) { "Unsafe runtime archive path" }
-                if (entry.isDirectory) output.mkdirs() else {
+                if (entry.name in linkNames) {
+                    val target = zip.bufferedReader(Charsets.UTF_8).readText()
+                    require(target.length <= 4096 && !File(target).isAbsolute && '\u0000' !in target) { "Invalid runtime symbolic link" }
+                    require(File(output.parentFile, target).canonicalPath.startsWith(prefix)) { "Unsafe runtime symbolic link" }
+                    links += output to target
+                } else if (entry.isDirectory) output.mkdirs() else {
                     output.parentFile?.mkdirs()
                     output.outputStream().use { zip.copyTo(it) }
                 }
             }
+        }
+        // Restore links after regular files so shared-library aliases remain valid ELF files.
+        for ((output, target) in links) {
+            output.parentFile?.mkdirs()
+            Os.symlink(target, output.absolutePath)
         }
     }
 
