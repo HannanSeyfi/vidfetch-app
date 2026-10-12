@@ -41,7 +41,7 @@ def main():
     run = subprocess.run(command, text=True, capture_output=True, timeout=300)
     output = run.stdout + run.stderr
     print(output, flush=True)
-    result = parse_result(output, 1 if args.live_url else 4)
+    result = parse_result(output, 1 if args.live_url else 5)
     directory = pathlib.Path("app/build/reports/runtime-tests")
     directory.mkdir(parents=True, exist_ok=True)
     name = "live-youtube" if args.live_url else "required-runtime"

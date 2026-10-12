@@ -22,7 +22,7 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
 
     override suspend fun analyze(url: String): VideoInfo = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
-            parse(ExtractorRuntime.run(context, baseArguments(cookie) + listOf("--dump-single-json", "--skip-download", "--", url)))
+            parseVideoInfo(ExtractorRuntime.run(context, baseArguments(cookie) + listOf("--dump-single-json", "--skip-download", "--", url)))
         }
     }
 
@@ -50,7 +50,7 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         return try { action(cookie) } finally { cookie?.delete() }
     }
 
-    private fun parse(raw: String): VideoInfo {
+    internal fun parseVideoInfo(raw: String): VideoInfo {
         val json = JSONObject(raw)
         val items = json.optJSONArray("formats") ?: JSONArray().apply { put(json) }
         val formats = (0 until items.length()).map { items.getJSONObject(it).toFormat() }
@@ -59,8 +59,13 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
             json.optString("thumbnail").ifBlank { null }, json.optLong("duration").takeIf { it > 0 }, formats)
     }
 
-    private fun JSONObject.toFormat() = VideoFormat(optString("format_id"), optInt("height").takeIf { it > 0 }, optInt("width").takeIf { it > 0 },
-        optDouble("fps").takeIf { !it.isNaN() }, optString("ext").ifBlank { null }, optString("vcodec").ifBlank { null },
-        optString("acodec").ifBlank { null }, optLong("filesize").takeIf { it > 0 }, optLong("filesize_approx").takeIf { it > 0 },
-        optDouble("tbr").takeIf { !it.isNaN() }, optString("vcodec") !in listOf("", "none"), optString("acodec") !in listOf("", "none"))
+    private fun JSONObject.toFormat(): VideoFormat {
+        val videoCodec = optString("vcodec").takeUnless { it.isBlank() || it == "null" }
+        // Direct MP4 extractors such as Pornhub may provide a resolution without a codec.
+        // yt-dlp uses "none" to explicitly identify formats without video.
+        return VideoFormat(optString("format_id"), optInt("height").takeIf { it > 0 }, optInt("width").takeIf { it > 0 },
+            optDouble("fps").takeIf { !it.isNaN() }, optString("ext").ifBlank { null }, videoCodec,
+            optString("acodec").ifBlank { null }, optLong("filesize").takeIf { it > 0 }, optLong("filesize_approx").takeIf { it > 0 },
+            optDouble("tbr").takeIf { !it.isNaN() }, videoCodec != "none", optString("acodec") !in listOf("", "none"))
+    }
 }
