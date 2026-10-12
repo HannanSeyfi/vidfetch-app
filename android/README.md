@@ -41,7 +41,7 @@ For an x86_64 Android emulator:
 ./gradlew -PemulatorBuild=true connectedDebugAndroidTest
 ```
 
-Instrumentation tests start the actual packaged interpreter, import curl_cffi, execute QuickJS and FFmpeg/ffprobe, enumerate browser impersonation targets, download generated MP4, HLS and separate-stream DASH media without cookies, check audio/video streams, and verify cookie storage and switches. GitHub CI exercises API 24 and API 35. An optional live check uses the supplied YouTube example; external site or IP restrictions can affect that check independently of the deterministic runtime tests.
+Instrumentation tests start the actual packaged interpreter, import curl_cffi, execute QuickJS and FFmpeg/ffprobe, enumerate browser impersonation targets, download generated MP4, HLS and separate-stream DASH media without cookies, check audio/video streams, and verify cookie storage and switches. GitHub CI exercises API 24 and API 35 using tools/run_runtime_tests.py with non-streaming ADB installation to avoid the old emulator install-write transport issue. Required and live test reports are stored separately. An optional live check uses the supplied YouTube example; external site or IP restrictions can affect that check independently of the deterministic runtime tests.
 
 ## Limitations
 
