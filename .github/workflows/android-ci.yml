@@ -5,9 +5,14 @@ permissions:
 
 on:
   push:
+    branches: [main]
     paths: ["android/**", ".github/workflows/android-ci.yml", "AGENTS.md", ".gitignore"]
   pull_request:
     paths: ["android/**", ".github/workflows/android-ci.yml", "AGENTS.md", ".gitignore"]
+
+concurrency:
+  group: android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   runtime-tests:
