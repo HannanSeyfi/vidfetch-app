@@ -1,0 +1,116 @@
+{
+  "ytDlpVersion": "2026.10.10.233141",
+  "runtimeCommit": "35f2609d80ce26b6683a0b2b6bc52f32efe4c81c",
+  "artifacts": [
+    {
+      "path": "jni/arm64-v8a/libffmpeg.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/arm64-v8a/libffmpeg.so",
+      "sha256": "9f5afc1d021d92d78063daa96a8fdc990d21337af1df6dc9aa0dd267ad0361a2"
+    },
+    {
+      "path": "jni/arm64-v8a/libffmpeg.zip.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/arm64-v8a/libffmpeg.zip.so",
+      "sha256": "e2d39e6239fb2d8fc7afb079ce79e95befd0401d1b6ed95766f0d46a81e22c04"
+    },
+    {
+      "path": "jni/arm64-v8a/libffprobe.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/arm64-v8a/libffprobe.so",
+      "sha256": "f9550186cbdc1b4306677d3fd17b248526ac2a01146706a6796d415aee0987d0"
+    },
+    {
+      "path": "jni/armeabi-v7a/libffmpeg.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/armeabi-v7a/libffmpeg.so",
+      "sha256": "e2db1a1e19e75c0d7afda3c8ac0c1a5bd70c98594d39491d847dad4d68c1dd5c"
+    },
+    {
+      "path": "jni/armeabi-v7a/libffmpeg.zip.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/armeabi-v7a/libffmpeg.zip.so",
+      "sha256": "63171dd3e81dda5580557d3af52854b44f5698c89b7432a271057930743bb7e1"
+    },
+    {
+      "path": "jni/armeabi-v7a/libffprobe.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/armeabi-v7a/libffprobe.so",
+      "sha256": "4cd8aee9fcb56f5fcab3812f83f61a8b909de6d99ea982f77f70dec5bfbaed2c"
+    },
+    {
+      "path": "jni/x86_64/libffmpeg.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/x86_64/libffmpeg.so",
+      "sha256": "23611ee1a308add41a94d12751043b0d5fae6ccd9ce043a39665672b8fe43298"
+    },
+    {
+      "path": "jni/x86_64/libffmpeg.zip.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/x86_64/libffmpeg.zip.so",
+      "sha256": "ba57ca6860e6c16d8e9e0137fcf1d2b2dedafbf6c621a1135a6ceac41d24ae57"
+    },
+    {
+      "path": "jni/x86_64/libffprobe.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/ffmpeg/src/main/jniLibs/x86_64/libffprobe.so",
+      "sha256": "ddd910fab957d09840505566f6e504070f8f6f8931bdd1f56d5d2a826d1e6b83"
+    },
+    {
+      "path": "jni/arm64-v8a/libpython.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/arm64-v8a/libpython.so",
+      "sha256": "4f8d78ede7fc26e96e99342dd83ce42d32c9b4d0806bc9a99ff7151396269b25"
+    },
+    {
+      "path": "jni/arm64-v8a/libpython.zip.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/arm64-v8a/libpython.zip.so",
+      "sha256": "dfd2013985b16f63c69dc5a408488ca3ad96b01141e717d57d89e4ade15da296"
+    },
+    {
+      "path": "jni/arm64-v8a/libqjs-cli.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/arm64-v8a/libqjs-cli.so",
+      "sha256": "962b8fe1cde636cc2c6a46edd390768f1076c2a2fd8a46ffb88fcbfb874d2926"
+    },
+    {
+      "path": "jni/arm64-v8a/libqjs.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/arm64-v8a/libqjs.so",
+      "sha256": "0eb2628f50909531e967fd797acacd5b900de09345fdd0da808ff28a8580dcb1"
+    },
+    {
+      "path": "jni/armeabi-v7a/libpython.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/armeabi-v7a/libpython.so",
+      "sha256": "5292013d3049d4fecc9851abe5b6207726fd231ba914e32c57d42e5ea240f851"
+    },
+    {
+      "path": "jni/armeabi-v7a/libpython.zip.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/armeabi-v7a/libpython.zip.so",
+      "sha256": "3cc858774622d7e4ef08a36a2d3274f0cecea13080c41a989cae1f81d5d610ac"
+    },
+    {
+      "path": "jni/armeabi-v7a/libqjs-cli.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/armeabi-v7a/libqjs-cli.so",
+      "sha256": "57878b3a95e351e512a0b863a560a7e7305218fc20f5898239d052b8b0c166ae"
+    },
+    {
+      "path": "jni/armeabi-v7a/libqjs.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/armeabi-v7a/libqjs.so",
+      "sha256": "d213abaf3ffe1018a912ad55e2a59408f3b8ccd3b8a61d2f539f9218af5541d6"
+    },
+    {
+      "path": "jni/x86_64/libpython.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/x86_64/libpython.so",
+      "sha256": "1b6d03301c6ef10ad266dc7ddf7b5ef1e7060f1a18cf1a924c7c922625b8c779"
+    },
+    {
+      "path": "jni/x86_64/libpython.zip.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/x86_64/libpython.zip.so",
+      "sha256": "31ee24c1c503f15183e72f09bbc86245b7d956198b1aa2c048c6d07219f09f1f"
+    },
+    {
+      "path": "jni/x86_64/libqjs-cli.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/x86_64/libqjs-cli.so",
+      "sha256": "d53cfe03658e9f7b62688820d2df8e34f7447a00b7a4e9061906da89b9ce6f26"
+    },
+    {
+      "path": "jni/x86_64/libqjs.so",
+      "url": "https://raw.githubusercontent.com/hussain-najeb/youtubedl-android/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c/library/src/main/jniLibs/x86_64/libqjs.so",
+      "sha256": "bf70829b19de8f48d782df74adf60d7e4fd7eb535d51bc4914ecaa027d962859"
+    },
+    {
+      "path": "res/raw/ytdlp",
+      "url": "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/2026.10.10.233141/yt-dlp",
+      "sha256": "f40b6a9e4c5786360953911cab5d2f87507626b8fb7bfee3f8f1c2e5cf341fae"
+    }
+  ]
+}

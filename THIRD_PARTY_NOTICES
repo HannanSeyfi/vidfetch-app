@@ -1,8 +1,12 @@
 VidFetch includes or depends on third-party components. Their licenses remain with their respective authors.
 
 * yt-dlp — Unlicense (https://github.com/yt-dlp/yt-dlp)
-* youtubedl-android — GPL-3.0 (https://github.com/JunkFood02/youtubedl-android)
-* FFmpeg — LGPL/GPL depending on enabled components (https://ffmpeg.org/legal.html)
+* Native runtime packaging derived from youtubedl-android contribution — GPL-3.0 (https://github.com/yausername/youtubedl-android/pull/361). Pinned sources and packaging recipes: android/runtime/README.md.
+* FFmpeg/ffprobe 8.1.2 and bundled native runtime dependencies — LGPL/GPL and their respective component licenses (https://ffmpeg.org/legal.html). Sources and packaging recipes: android/runtime/README.md.
+* CPython 3.14 — Python Software Foundation License (https://github.com/python/cpython)
+* QuickJS-ng 0.16.2 — MIT (https://github.com/quickjs-ng/quickjs)
+* curl_cffi/curl-impersonate and cffi — MIT and their bundled dependency licenses (https://github.com/lexiforest/curl_cffi, https://github.com/lexiforest/curl-impersonate, https://github.com/python-cffi/cffi)
+* certifi — MPL-2.0 (https://github.com/certifi/python-certifi)
 * AndroidX, Jetpack Compose, Material Components, Kotlin coroutines — Apache License 2.0
 * Coil — Apache License 2.0
 * Telegram icon — Simple Icons, CC0 1.0 (https://github.com/simple-icons/simple-icons)

@@ -60,7 +60,8 @@ class DownloadService : Service() {
                 working = media.workingDirectory()
                 val output = File(working, "%(title).180B.%(ext)s").absolutePath
                 var lastProgress = -1
-                YtDlpRepositoryImpl(applicationContext).download(url, intent!!.getIntExtra(EXTRA_HEIGHT, 0).takeIf { it > 0 }, output) { value ->
+                val requestedHeight = intent!!.getIntExtra(EXTRA_HEIGHT, 0).takeIf { it > 0 }
+                val result = YtDlpRepositoryImpl(applicationContext).download(url, requestedHeight, output) { value ->
                     val next = value.coerceIn(0, 99)
                     if (next != lastProgress) {
                         lastProgress = next
@@ -70,7 +71,8 @@ class DownloadService : Service() {
                 }
                 DownloadState.advanced(99)
                 media.publish(media.finishedVideo(working))
-                DownloadState.finished("Saved to Downloads/VidFetch")
+                val quality = if (requestedHeight != null && result.height != null && result.height != requestedHeight) " · Downloaded ${result.height}p (requested ${requestedHeight}p)" else ""
+                DownloadState.finished("Saved to Downloads/VidFetch$quality")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 notifier.complete(title)
             } catch (error: CancellationException) {

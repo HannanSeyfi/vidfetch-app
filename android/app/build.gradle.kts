@@ -1,3 +1,10 @@
+import groovy.json.JsonSlurper
+import java.io.File
+import java.net.URI
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +12,48 @@ plugins {
 }
 
 val releaseKeystore = System.getenv("VIDFETCH_KEYSTORE_FILE")
+val emulatorBuild = providers.gradleProperty("emulatorBuild").orNull == "true"
+val extractorOutput = layout.buildDirectory.dir("generated/extractor")
+val prepareExtractorRuntime = tasks.register("prepareExtractorRuntime") {
+    val lockFile = rootProject.file("runtime/runtime-lock.json")
+    inputs.file(lockFile)
+    outputs.dir(extractorOutput)
+    doLast {
+        val lock = JsonSlurper().parse(lockFile) as Map<*, *>
+        for (entry in lock["artifacts"] as List<*>) {
+            val artifact = entry as Map<*, *>
+            val target = extractorOutput.get().file(artifact["path"] as String).asFile
+            val expected = artifact["sha256"] as String
+            fun checksum(file: File): String {
+                val digest = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(65536)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                return digest.digest().joinToString("") { "%02x".format(it) }
+            }
+            if (target.exists() && checksum(target) == expected) continue
+            target.parentFile.mkdirs()
+            val temporary = File(target.parentFile, "${target.name}.download")
+            try {
+                val connection = URI(artifact["url"] as String).toURL().openConnection().apply {
+                    connectTimeout = 30000
+                    readTimeout = 120000
+                }
+                connection.getInputStream().use { input -> temporary.outputStream().use(input::copyTo) }
+                check(checksum(temporary) == expected) { "Runtime checksum mismatch: ${artifact["path"]}" }
+                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            } finally {
+                temporary.delete()
+            }
+        }
+    }
+}
+tasks.named("preBuild").configure { dependsOn(prepareExtractorRuntime) }
 
 android {
     namespace = "com.vidfetch.app"
@@ -14,8 +63,10 @@ android {
         applicationId = "com.vidfetch.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.2.2"
+        versionCode = 12
+        versionName = "0.3.0"
+        buildConfigField("String", "BUNDLED_YTDLP_VERSION", "\"2026.10.10.233141\"")
+        buildConfigField("String", "RUNTIME_COMMIT", "\"35f2609d80ce26b6683a0b2b6bc52f32efe4c81c\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -23,12 +74,22 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    packaging { jniLibs { useLegacyPackaging = true } }
+    sourceSets["main"].apply {
+        jniLibs.srcDir(extractorOutput.map { it.dir("jni") })
+        res.srcDir(extractorOutput.map { it.dir("res") })
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += "**/*.so"
+            excludes += if (emulatorBuild) listOf("**/arm64-v8a/**", "**/armeabi-v7a/**") else listOf("**/x86_64/**")
+        }
+    }
     splits {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a")
+            if (emulatorBuild) include("x86_64") else include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = false
         }
     }
@@ -73,8 +134,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
-    implementation(libs.ytdlp.library)
-    implementation(libs.ytdlp.ffmpeg)
     testImplementation(libs.junit)
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     debugImplementation(libs.androidx.ui.tooling)
 }
