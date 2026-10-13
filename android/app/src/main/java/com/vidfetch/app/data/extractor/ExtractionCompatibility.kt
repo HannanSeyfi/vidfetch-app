@@ -12,15 +12,17 @@ internal fun supportsCompatibility(url: String): Boolean {
 }
 
 internal suspend fun <T> extractWithCompatibility(url: String, execute: suspend (ExtractorBackend) -> T): T {
+    val compatibleSite = supportsCompatibility(url)
+    // 0.2.2 after Update extractor: current yt-dlp, older Python/networking runtime.
+    val first = if (compatibleSite) ExtractorBackend.COMPATIBILITY else ExtractorBackend.CURRENT
     try {
-        return execute(ExtractorBackend.CURRENT)
+        return execute(first)
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
         val detail = error.message.orEmpty().lowercase()
         val rejected = "http error 403" in detail || "http 403" in detail || "forbidden" in detail || "account authentication is required" in detail
-        if (!supportsCompatibility(url) || !rejected) throw error
-        // Restore the packaged 0.2.2 Python/networking and extractor path for these sites.
-        return execute(ExtractorBackend.COMPATIBILITY)
+        if (!compatibleSite || !rejected) throw error
+        return execute(ExtractorBackend.CURRENT)
     }
 }

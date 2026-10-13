@@ -113,11 +113,6 @@
       "sha256": "f40b6a9e4c5786360953911cab5d2f87507626b8fb7bfee3f8f1c2e5cf341fae"
     },
     {
-      "path": "res/raw/ytdlp_compat",
-      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/res/raw/ytdlp",
-      "sha256": "89a0d9058ea9018e380b7771898ff46e393a1986dcd13fef331693c87ce1fca4"
-    },
-    {
       "path": "jni/arm64-v8a/libpython-compat.so",
       "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/jniLibs/arm64-v8a/libpython.so",
       "sha256": "58ba29cfc5a6d88281c07b2b480fb1d8cce1b78f280b002347f792cfd9cf5901"
@@ -148,6 +143,5 @@
       "sha256": "27caa316e09681ada860fdb6b35c1914e541e266e674141361758ac127fe2f15"
     }
   ],
-  "compatibilityYtDlpVersion": "2025.11.12",
   "compatibilityRuntimeCommit": "d725d5c9a18c3a99a13ee0308bf78275dc310760"
 }

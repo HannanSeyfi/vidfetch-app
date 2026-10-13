@@ -1,12 +1,12 @@
-VidFetch 0.3.3 adds a local compatibility retry for Reddit and RedGIFs download regressions.
+VidFetch 0.3.4 corrects the Reddit and RedGIFs compatibility path.
 
-- Retries rejected Reddit and RedGIFs requests with the Python/networking and extractor payload shipped in 0.2.2.
-- Uses the same compatibility path in Analyze and Download, with existing site-cookie settings.
-- Limits the retry to Reddit/RedGIFs domains and HTTP 403 or anonymous-session rejection; keeps cancellation and unrelated errors intact.
-- Removes unrelated YouTube verification advice from general website HTTP 403 errors.
-- Retains the Pornhub quality selection fix and the current runtime for other sites.
-- Adds Android checks using the real compatibility extractors, a synthetic Reddit share redirect into RedGIFs, and MP4/HLS/DASH media with audio and video.
+- Runs the updated yt-dlp extractor with the Python 3.12/networking runtime from 0.2.2 for Reddit and RedGIFs. The working 0.2.2 installation had used Update extractor; 0.3.3 incorrectly restored its original frozen 2025 extractor instead.
+- Uses that combination first for analysis and downloading, with a modern-runtime retry for HTTP 403 or anonymous-session rejection.
+- Makes Update extractor apply to both runtimes and removes the frozen extractor from the APK and private storage.
+- Shows the terminal extraction error instead of treating a non-fatal startup age warning as the failure.
+- Adds Android regression checks using the app's actual CLI arguments, anonymous session/token fixtures, selected qualities, downloads with audio and video, and warning/error handling.
+- Retains the Pornhub quality fix, optional site cookies and current runtime for other sites.
 
-Choose VidFetch_v8a_0.3.3.apk for most current Android phones, or VidFetch_v7a_0.3.3.apk for 32-bit ARM phones. Both require Android 7.0 or newer and use the existing release signing identity.
+Choose VidFetch_v8a_0.3.4.apk for most current Android phones, or VidFetch_v7a_0.3.4.apk for 32-bit ARM phones. Both require Android 7.0 or newer and use the existing release signing identity.
 
-The supplied Reddit example is blocked from the development network with both the older and current engines, so successful live access from that network is unconfirmed. The release restores the known 0.2.2 extraction components reported working on the user's phone, and checks the restored path with controlled Android fixtures. Website/network restrictions may still affect individual requests.
+The supplied Reddit example remains inaccessible from the development network. Controlled Android tests verify the updated-engine/older-runtime combination; successful access to that exact live link on the user's phone still needs confirmation.

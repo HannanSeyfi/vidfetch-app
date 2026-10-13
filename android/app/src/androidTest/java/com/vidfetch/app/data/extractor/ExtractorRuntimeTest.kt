@@ -4,9 +4,12 @@ import android.content.Context
 import com.vidfetch.app.BuildConfig
 import com.vidfetch.app.data.cookies.SiteCookieStore
 import com.vidfetch.app.domain.qualities
+import com.vidfetch.app.friendlyError
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.net.ServerSocket
 import kotlin.concurrent.thread
@@ -16,7 +19,8 @@ class ExtractorRuntimeTest {
 
     @Test fun compatibilityRuntimeRestoresRedditAndRedgifsExtractionAndDownloads() = runBlocking {
         val backend = ExtractorBackend.COMPATIBILITY
-        assertEquals(BuildConfig.COMPATIBILITY_YTDLP_VERSION, ExtractorRuntime.run(context, listOf("--version"), backend = backend).trim())
+        assertEquals(BuildConfig.BUNDLED_YTDLP_VERSION, ExtractorRuntime.run(context, listOf("--version"), backend = backend).trim())
+        assertEquals(ExtractorRuntime.run(context, listOf("--version")).trim(), ExtractorRuntime.run(context, listOf("--version"), backend = backend).trim())
         val version = ExtractorRuntime.python(context, listOf("-c", "import sys, ssl; print(sys.version); print(ssl.OPENSSL_VERSION)"), backend)
         assertTrue(version.contains("3.12."))
         val folder = File(context.cacheDir, "compatibility-test-media").apply { mkdirs() }
@@ -31,12 +35,54 @@ class ExtractorRuntimeTest {
             val script = File(folder, "compatibility_check.py")
             ExtractorInstrumentationRunner.active.context.assets.open("compatibility_check.py").use { input -> script.outputStream().use { input.copyTo(it) } }
             FixtureServer(folder).use { server ->
-                val output = ExtractorRuntime.python(context, listOf(script.absolutePath, ExtractorRuntime.engineFile(context, backend).absolutePath,
-                    native, "http://127.0.0.1:${server.port}", folder.absolutePath), backend)
+                val output = ExtractorRuntime.python(context, listOf(script.absolutePath, ExtractorRuntime.engineFile(context).absolutePath,
+                    native, "http://127.0.0.1:${server.port}", folder.absolutePath, BuildConfig.BUNDLED_YTDLP_VERSION), backend)
                 assertTrue(output.contains("VIDFETCH_COMPATIBILITY_OK"))
             }
             val info = YtDlpRepositoryImpl(context).parseVideoInfo(File(folder, "compat-info.json").readText())
             assertEquals(listOf(null, 240), qualities(info.formats).map { it.height })
+        } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun updatedCompatibilityUsesAppCliAndReportsRealErrors() = runBlocking {
+        val backend = ExtractorBackend.COMPATIBILITY
+        val folder = File(context.cacheDir, "compatibility-cli-test").apply { mkdirs() }
+        val native = context.applicationInfo.nativeLibraryDir
+        val repository = YtDlpRepositoryImpl(context)
+        try {
+            ExtractorRuntime.python(context, listOf("-c", """
+                import subprocess
+                subprocess.check_call(['$native/libffmpeg.so', '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=320x240:d=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:v', 'libx264', '-c:a', 'aac', '-shortest', '${folder.absolutePath}/source.mp4'])
+            """.trimIndent()), backend)
+            val script = File(folder, "compatibility_check.py")
+            ExtractorInstrumentationRunner.active.context.assets.open("compatibility_check.py").use { input -> script.outputStream().use { input.copyTo(it) } }
+            FixtureServer(folder).use { server ->
+                val config = File(folder, "cli.json")
+                suspend fun cli(arguments: List<String>, warning: Boolean = false, failure: Boolean = false): String {
+                    config.writeText(JSONObject().put("arguments", JSONArray(arguments)).put("warning", warning).put("failure", failure).toString())
+                    return ExtractorRuntime.python(context, listOf(script.absolutePath, ExtractorRuntime.engineFile(context).absolutePath,
+                        native, "http://127.0.0.1:${server.port}", folder.absolutePath, BuildConfig.BUNDLED_YTDLP_VERSION, config.absolutePath), backend)
+                }
+                for ((label, url) in listOf("reddit" to "https://www.reddit.com/r/videos/s/synthetic", "redgifs" to "https://www.redgifs.com/watch/syntheticclip")) {
+                    assertNull(SiteCookieStore(context).snapshotFor(url))
+                    val info = repository.parseVideoInfo(cli(repository.analysisArguments(null, url), warning = true))
+                    assertEquals(listOf(null, 240), qualities(info.formats).map { it.height })
+                    val destination = File(folder, "$label.mp4")
+                    val output = cli(repository.downloadArguments(null, url, 360, destination.absolutePath))
+                    assertTrue(output.contains("VIDFETCH_HEIGHT:240"))
+                    assertTrue(destination.length() > 1000)
+                    val probe = ExtractorRuntime.python(context, listOf("-c", """
+                        import subprocess
+                        print(subprocess.check_output(['$native/libffprobe.so', '-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', '${destination.absolutePath}'], text=True))
+                    """.trimIndent()), backend)
+                    assertTrue(probe.contains("video") && probe.contains("audio"))
+                }
+                val failure = runCatching { cli(repository.analysisArguments(null, "https://www.reddit.com/r/videos/s/synthetic"), warning = true, failure = true) }.exceptionOrNull()
+                assertNotNull(failure)
+                assertTrue(failure!!.message.orEmpty().contains("Private subreddit"))
+                assertFalse(failure.message.orEmpty().contains("older than 90 days"))
+                assertFalse(friendlyError(failure as Exception).contains("outdated"))
+            }
         } finally { folder.deleteRecursively() }
     }
 
@@ -169,7 +215,11 @@ private class FixtureServer(private val folder: File) : AutoCloseable {
                     val valid = file.canonicalPath.startsWith(folder.canonicalPath + File.separator) && file.isFile
                     val bytes = if (valid) file.readBytes() else byteArrayOf()
                     val type = when (file.extension) { "m3u8" -> "application/vnd.apple.mpegurl"; "mpd" -> "application/dash+xml"; "ts" -> "video/mp2t"; "html" -> "text/html"; "json" -> "application/json"; else -> "video/mp4" }
-                    val canonical = if (file.name == "share.html") "X-Fixture-Url: https://www.reddit.com/r/videos/comments/fixture123/\r\n" else ""
+                    val canonical = when (file.name) {
+                        "share.html" -> "X-Fixture-Url: https://www.reddit.com/r/videos/comments/fixture123/\r\n"
+                        "session.html" -> "Set-Cookie: loid=synthetic-loid; Domain=.reddit.com; Path=/\r\n"
+                        else -> ""
+                    }
                     val header = "HTTP/1.1 ${if (valid) "200 OK" else "404 Not Found"}\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n${canonical}Connection: close\r\n\r\n"
                     socket.getOutputStream().write(header.toByteArray())
                     if (request[0] != "HEAD") socket.getOutputStream().write(bytes)

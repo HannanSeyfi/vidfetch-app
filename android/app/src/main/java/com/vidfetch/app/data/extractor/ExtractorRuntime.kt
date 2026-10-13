@@ -29,7 +29,7 @@ internal object ExtractorRuntime {
         mutex.withLock {
             prepare(context)
             if (backend == ExtractorBackend.COMPATIBILITY) prepareCompatibility(context)
-            execute(context, listOf(engineFile(context, backend).absolutePath) + arguments, progress, backend)
+            execute(context, listOf(engineFile(context).absolutePath) + arguments, progress, backend)
         }
     }
 
@@ -38,7 +38,7 @@ internal object ExtractorRuntime {
             prepare(context)
             val version = execute(context, listOf(binary(context).absolutePath, "--version")).trim()
             val packages = execute(context, listOf("-c", "import platform, curl_cffi; print('Python ' + platform.python_version() + ' · curl_cffi ' + curl_cffi.__version__)")).trim()
-            "yt-dlp $version · $packages · QuickJS-ng 0.16.2 · FFmpeg 8.1.2 · Reddit/RedGIFs compatibility ${BuildConfig.COMPATIBILITY_YTDLP_VERSION}"
+            "yt-dlp $version · $packages · QuickJS-ng 0.16.2 · FFmpeg 8.1.2 · Reddit/RedGIFs: same yt-dlp, Python 3.12"
         }
     }
 
@@ -85,8 +85,8 @@ internal object ExtractorRuntime {
     private fun root(context: Context) = File(context.noBackupFilesDir, "extractor-runtime")
     private fun binary(context: Context) = File(root(context), "yt-dlp")
     private fun compatibilityRoot(context: Context) = File(context.noBackupFilesDir, "extractor-compatibility")
-    internal fun engineFile(context: Context, backend: ExtractorBackend) =
-        if (backend == ExtractorBackend.CURRENT) binary(context) else File(compatibilityRoot(context), "yt-dlp")
+    // Both interpreters use this file, including replacements made by Update extractor.
+    internal fun engineFile(context: Context) = binary(context)
 
     private fun prepareCompatibility(context: Context) {
         if (compatibilityInitialized) return
@@ -96,11 +96,10 @@ internal object ExtractorRuntime {
         if (!marker.exists() || marker.readText() != version) {
             unpack(File(context.applicationInfo.nativeLibraryDir, "libpython-compat.zip.so"), File(root, "python"))
             File(root, "python/usr/lib/liblzma.so").delete()
-            val temporary = File(root, "yt-dlp.install")
-            context.resources.openRawResource(R.raw.ytdlp_compat).use { input -> temporary.outputStream().use { input.copyTo(it) } }
-            replace(temporary, engineFile(context, ExtractorBackend.COMPATIBILITY))
             marker.writeText(version)
         }
+        // Retire 0.3.3's frozen extractor even if the Python payload is already installed.
+        File(root, "yt-dlp").delete()
         compatibilityInitialized = true
     }
 
@@ -201,14 +200,15 @@ internal object ExtractorRuntime {
             },
             thread(name = "vidfetch-extractor-errors", isDaemon = true) {
                 runCatching { process.errorStream.bufferedReader().useLines { lines -> lines.forEach { line ->
-                    if (error.length < 32000) error.appendLine(line)
+                    error.appendLine(line)
+                    if (error.length > 32000) error.delete(0, error.length - 32000)
                 } } }
             },
         )
         try {
             val status = process.waitFor()
             readers.forEach { it.join() }
-            if (status != 0) throw IllegalStateException(error.toString().trim().ifBlank { "Extraction failed (exit $status)" })
+            if (status != 0) throw IllegalStateException(extractorFailureDetail(error.toString(), status))
             out.toString()
         } finally {
             process.destroy()

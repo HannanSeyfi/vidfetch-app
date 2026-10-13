@@ -20,6 +20,10 @@ val prepareExtractorRuntime = tasks.register("prepareExtractorRuntime") {
     outputs.dir(extractorOutput)
     doLast {
         val lock = JsonSlurper().parse(lockFile) as Map<*, *>
+        val expectedPaths = (lock["artifacts"] as List<*>).map { (it as Map<*, *>)["path"] as String }.toSet()
+        val generated = extractorOutput.get().asFile
+        // Remove retired artifacts from incremental builds as well as clean CI builds.
+        generated.walkTopDown().filter { it.isFile && it.relativeTo(generated).invariantSeparatorsPath !in expectedPaths }.forEach { it.delete() }
         for (entry in lock["artifacts"] as List<*>) {
             val artifact = entry as Map<*, *>
             val target = extractorOutput.get().file(artifact["path"] as String).asFile
@@ -63,9 +67,8 @@ android {
         applicationId = "com.vidfetch.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.3.3"
-        buildConfigField("String", "COMPATIBILITY_YTDLP_VERSION", "\"2025.11.12\"")
+        versionCode = 15
+        versionName = "0.3.4"
         buildConfigField("String", "COMPATIBILITY_RUNTIME_COMMIT", "\"d725d5c9a18c3a99a13ee0308bf78275dc310760\"")
         buildConfigField("String", "BUNDLED_YTDLP_VERSION", "\"2026.10.10.233141\"")
         buildConfigField("String", "RUNTIME_COMMIT", "\"35f2609d80ce26b6683a0b2b6bc52f32efe4c81c\"")
