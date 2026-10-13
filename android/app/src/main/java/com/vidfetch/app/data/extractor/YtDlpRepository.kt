@@ -32,7 +32,7 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         withCookies(url) { cookie ->
             extractWithCompatibility(url) { backend ->
                 val output = ExtractorRuntime.run(context, downloadArguments(cookie, url, height, outputTemplate), progress, backend)
-                completedDownload(output, outputTemplate, backend)
+                completedDownload(output, outputTemplate)
             }
         }
     }
@@ -51,17 +51,14 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         )
     }
 
-    internal suspend fun completedDownload(output: String, outputTemplate: String, backend: ExtractorBackend = ExtractorBackend.CURRENT): DownloadResult {
+    internal suspend fun completedDownload(output: String, outputTemplate: String): DownloadResult {
         val value = output.lineSequence().lastOrNull { it.startsWith("VIDFETCH_FILE:") }?.substringAfter(':')
             ?: error("The extractor did not report a completed video. Video/audio merging may have failed.")
         val file = File(JSONArray("[$value]").getString(0)).canonicalFile
         val folder = File(outputTemplate).parentFile!!.canonicalFile
         check(file.parentFile == folder && file.isFile && file.length() > 0) { "The completed video is missing. Video/audio merging may have failed." }
         check(file.extension.lowercase() in videoFileExtensions) { "The downloaded file is not a video file." }
-        val probe = JSONObject(ExtractorRuntime.python(context, listOf("-c", """
-            import subprocess, sys
-            print(subprocess.check_output([sys.argv[1], '-v', 'error', '-show_streams', '-of', 'json', sys.argv[2]], text=True))
-        """.trimIndent(), "${context.applicationInfo.nativeLibraryDir}/libffprobe.so", file.absolutePath), backend))
+        val probe = JSONObject(ExtractorRuntime.media(context, "ffprobe", listOf("-v", "error", "-show_streams", "-of", "json", file.absolutePath)))
         val streams = probe.getJSONArray("streams")
         val video = (0 until streams.length()).map { streams.getJSONObject(it) }.firstOrNull {
             it.optString("codec_type") == "video" && it.optJSONObject("disposition")?.optInt("attached_pic") != 1

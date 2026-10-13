@@ -50,6 +50,27 @@ internal object ExtractorRuntime {
         }
     }
 
+    internal suspend fun media(context: Context, tool: String, arguments: List<String>): String = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            prepare(context)
+            executeProcess(mediaProcessBuilder(context, tool, arguments))
+        }
+    }
+
+    internal fun mediaProcessBuilder(context: Context, tool: String, arguments: List<String>): ProcessBuilder {
+        require(tool in setOf("ffmpeg", "ffprobe"))
+        val native = context.applicationInfo.nativeLibraryDir
+        return ProcessBuilder(listOf("$native/lib$tool.so") + arguments).apply {
+            environment().apply {
+                put("LD_LIBRARY_PATH", mediaLibraryPath(context))
+                listOf("PYTHONHOME", "PYTHONPATH", "PYTHONNOUSERSITE", "PYTHONUNBUFFERED", "OPENSSL_MODULES", "LD_PRELOAD").forEach(::remove)
+                put("TMPDIR", context.cacheDir.absolutePath)
+            }
+        }
+    }
+
+    private fun mediaLibraryPath(context: Context) = "${File(root(context), "ffmpeg/usr/lib").absolutePath}:${context.applicationInfo.nativeLibraryDir}"
+
     suspend fun update(context: Context): String = withContext(Dispatchers.IO) {
         mutex.withLock {
             prepare(context)
@@ -125,6 +146,11 @@ internal object ExtractorRuntime {
             context.resources.openRawResource(R.raw.ytdlp).use { input -> temporary.outputStream().use { input.copyTo(it) } }
             replace(temporary, target)
         }
+        // Install from this APK on every process initialization so upgrades replace the hook.
+        val startup = File(root, "startup").apply { mkdirs() }
+        val hook = File(startup, "sitecustomize.install")
+        context.resources.openRawResource(R.raw.sitecustomize).use { input -> hook.outputStream().use { input.copyTo(it) } }
+        replace(hook, File(startup, "sitecustomize.py"))
         initialized = true
     }
 
@@ -169,7 +195,7 @@ internal object ExtractorRuntime {
         }
     }.getOrNull()
 
-    private suspend fun execute(context: Context, arguments: List<String>, progress: ((Int) -> Unit)? = null, backend: ExtractorBackend = ExtractorBackend.CURRENT): String = runInterruptible {
+    private suspend fun execute(context: Context, arguments: List<String>, progress: ((Int) -> Unit)? = null, backend: ExtractorBackend = ExtractorBackend.CURRENT): String {
         val compatible = backend == ExtractorBackend.COMPATIBILITY
         val runtimeRoot = if (compatible) compatibilityRoot(context) else root(context)
         val native = File(context.applicationInfo.nativeLibraryDir)
@@ -180,13 +206,21 @@ internal object ExtractorRuntime {
             put("PYTHONHOME", python.absolutePath)
             put("PYTHONNOUSERSITE", "1")
             put("PYTHONUNBUFFERED", "1")
+            put("PYTHONPATH", File(root(context), "startup").absolutePath)
             put("LD_LIBRARY_PATH", "${python.absolutePath}/lib:${ffmpeg.absolutePath}/lib:${native.absolutePath}")
+            put("VIDFETCH_FFMPEG_EXECUTABLE", File(native, "libffmpeg.so").absolutePath)
+            put("VIDFETCH_FFPROBE_EXECUTABLE", File(native, "libffprobe.so").absolutePath)
+            put("VIDFETCH_MEDIA_LIBRARY_PATH", mediaLibraryPath(context))
             put("SSL_CERT_FILE", if (compatible) "${python.absolutePath}/etc/tls/cert.pem" else "${python.absolutePath}/lib/python3.14/site-packages/certifi/cacert.pem")
             if (compatible) remove("OPENSSL_MODULES") else put("OPENSSL_MODULES", "${python.absolutePath}/lib/ossl-modules")
             put("HOME", runtimeRoot.absolutePath)
             put("TMPDIR", context.cacheDir.absolutePath)
             put("PATH", "${native.absolutePath}:${python.absolutePath}/bin:${get("PATH").orEmpty()}")
         }
+        return executeProcess(builder, progress)
+    }
+
+    private suspend fun executeProcess(builder: ProcessBuilder, progress: ((Int) -> Unit)? = null): String = runInterruptible {
         val process = builder.start()
         val out = StringBuilder()
         val error = StringBuilder()

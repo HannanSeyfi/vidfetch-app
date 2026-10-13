@@ -4,9 +4,9 @@ VidFetch is a privacy-minded, local-first video downloader for content a user is
 
 ## Download for Android
 
-[**Download the latest Android APK**](https://github.com/HannanSeyfi/vidfetch-app/releases/latest/download/VidFetch_v8a_0.3.5.apk)
+[**Download the latest Android APK**](https://github.com/HannanSeyfi/vidfetch-app/releases/latest/download/VidFetch_v8a_0.3.6.apk)
 
-This APK is for most current Android phones (`arm64-v8a`). GitHub publishes it after each successful build of `main`; Android may ask you to allow installation from your browser or file manager. Version 0.3.5 adds folder access to show moved-in and restored videos, tracks the completed video instead of guessing from intermediate files, and improves YouTube MP4 selection and merging. It retains the working extraction runtimes, Pornhub quality fix and optional site cookies. A 32-bit ARM APK is also available on the release page.
+This APK is for most current Android phones (`arm64-v8a`). GitHub publishes it after each successful build of `main`; Android may ask you to allow installation from your browser or file manager. Version 0.3.6 fixes a media-library conflict that could block saving downloaded videos in 0.3.5. It retains folder access for moved-in and restored videos, YouTube MP4 selection and merging, the existing extraction runtimes, Pornhub quality choices and optional site cookies. A 32-bit ARM APK is also available on the release page.
 
 ## Platforms
 
