@@ -31,10 +31,12 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
     override suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): DownloadResult = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
             val output = extractWithCompatibility(url) { backend ->
-                ExtractorRuntime.run(context, baseArguments(cookie, backend) + listOf(
-                "-f", selectorFor(height, url), "--merge-output-format", "mp4", "-o", outputTemplate,
-                "--newline", "--progress", "--progress-template", "download:VIDFETCH_PROGRESS:%(progress._percent_str)s",
-                "--print", "after_move:VIDFETCH_HEIGHT:%(height)s", "--", url,
+                // Restart compatibility downloads to avoid mixing partial streams from different backends.
+                val restart = if (backend == ExtractorBackend.COMPATIBILITY) listOf("--force-overwrites", "--no-continue") else emptyList()
+                ExtractorRuntime.run(context, baseArguments(cookie, backend) + restart + listOf(
+                    "-f", selectorFor(height, url), "--merge-output-format", "mp4", "-o", outputTemplate,
+                    "--newline", "--progress", "--progress-template", "download:VIDFETCH_PROGRESS:%(progress._percent_str)s",
+                    "--print", "after_move:VIDFETCH_HEIGHT:%(height)s", "--", url,
                 ), progress, backend)
             }
             DownloadResult(output.lineSequence().firstOrNull { it.startsWith("VIDFETCH_HEIGHT:") }?.substringAfter(':')?.toIntOrNull())

@@ -58,6 +58,7 @@ cases = [
 ]
 for label, url in cases:
     with FixtureYoutubeDL({'quiet': True, 'noprogress': True, 'noplaylist': True,
+                          'continuedl': False, 'overwrites': True,
                           'ffmpeg_location': os.path.join(native, 'libffmpeg.so'),
                           'format': ('bestvideo*+bestaudio/best' if label == 'hls'
                                      else 'bestvideo*[height<=360]+bestaudio/best[height<=360]'),
