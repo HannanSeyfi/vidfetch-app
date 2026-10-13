@@ -19,6 +19,12 @@ class FormattersTest {
         assertTrue(selector.contains("bestvideo*"))
         assertFalse(selector.endsWith("/best"))
     }
+    @Test fun youtubePrefersM4aAudioWithoutLosingTheChosenResolution() {
+        val selector = selectorFor(720, "https://youtu.be/example")
+        assertTrue(selector.startsWith("bestvideo*[height=720]+bestaudio[ext=m4a]"))
+        assertTrue(selector.indexOf("best[height=720]") < selector.indexOf("height<=720"))
+        assertTrue(selectorFor(null, "https://www.youtube.com/watch?v=example").startsWith("bestvideo*+bestaudio[ext=m4a]"))
+    }
     @Test fun siteMatchingDoesNotAcceptLookalikeHosts() {
         assertEquals("youtube.com", siteForUrl("https://youtu.be/example"))
         assertEquals("youtube.com", siteForUrl("https://m.youtube.com/watch?v=example"))

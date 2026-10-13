@@ -38,7 +38,7 @@ internal object ExtractorRuntime {
             prepare(context)
             val version = execute(context, listOf(binary(context).absolutePath, "--version")).trim()
             val packages = execute(context, listOf("-c", "import platform, curl_cffi; print('Python ' + platform.python_version() + ' · curl_cffi ' + curl_cffi.__version__)")).trim()
-            "yt-dlp $version · $packages · QuickJS-ng 0.16.2 · FFmpeg 8.1.2 · Reddit/RedGIFs: same yt-dlp, Python 3.12"
+            "yt-dlp $version · $packages · QuickJS-ng 0.16.2 · FFmpeg 8.1.2"
         }
     }
 

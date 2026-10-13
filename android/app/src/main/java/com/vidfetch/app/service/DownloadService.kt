@@ -70,7 +70,7 @@ class DownloadService : Service() {
                     }
                 }
                 DownloadState.advanced(99)
-                media.publish(media.finishedVideo(working))
+                media.publish(result.file)
                 val quality = if (requestedHeight != null && result.height != null && result.height != requestedHeight) " · Downloaded ${result.height}p (requested ${requestedHeight}p)" else ""
                 DownloadState.finished("Saved to Downloads/VidFetch$quality")
                 stopForeground(STOP_FOREGROUND_REMOVE)

@@ -17,6 +17,9 @@ import kotlin.concurrent.thread
 class ExtractorRuntimeTest {
     private val context: Context get() = ExtractorInstrumentationRunner.active.targetContext
 
+    @Test fun youtubeSeparateStreamsPublishOnlyCompletedVideo() { checkYoutubeSeparateStreams() }
+    @Test fun downloadsReflectCopiedMovedRestoredAndDeletedFiles() { checkDownloadsFolderContents() }
+
     @Test fun compatibilityRuntimeRestoresRedditAndRedgifsExtractionAndDownloads() = runBlocking {
         val backend = ExtractorBackend.COMPATIBILITY
         assertEquals(BuildConfig.BUNDLED_YTDLP_VERSION, ExtractorRuntime.run(context, listOf("--version"), backend = backend).trim())
@@ -201,7 +204,7 @@ class ExtractorRuntimeTest {
     }
 }
 
-private class FixtureServer(private val folder: File) : AutoCloseable {
+internal class FixtureServer(private val folder: File) : AutoCloseable {
     private val server = ServerSocket(0)
     val port: Int get() = server.localPort
     private val worker = thread(isDaemon = true) {

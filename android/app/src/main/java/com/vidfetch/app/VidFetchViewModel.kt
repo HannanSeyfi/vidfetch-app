@@ -33,6 +33,7 @@ data class VidFetchUiState(
     val downloads: List<DownloadedMedia> = emptyList(),
     val downloadsLoading: Boolean = false,
     val downloadsMessage: String? = null,
+    val downloadsFolderConnected: Boolean = false,
     val cookieSites: List<CookieSite> = emptyList(),
     val importingCookies: Boolean = false,
     val cookieMessage: String? = null,
@@ -109,12 +110,23 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             mutable.update { it.copy(downloadsLoading = true, downloadsMessage = null) }
             try {
-                val items = withContext(Dispatchers.IO) { media.list() }
-                if (generation == refreshGeneration) mutable.update { it.copy(downloads = items) }
+                val (items, connected) = withContext(Dispatchers.IO) { media.list() to media.hasFolderAccess() }
+                if (generation == refreshGeneration) mutable.update { it.copy(downloads = items, downloadsFolderConnected = connected) }
             } catch (error: Exception) {
                 if (generation == refreshGeneration) mutable.update { it.copy(downloadsMessage = error.message ?: "Could not load downloads.") }
             } finally {
                 if (generation == refreshGeneration) mutable.update { it.copy(downloadsLoading = false) }
+            }
+        }
+    }
+
+    fun connectDownloadsFolder(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { media.connectFolder(uri) }
+                refreshDownloads()
+            } catch (error: Exception) {
+                mutable.update { it.copy(downloadsMessage = error.message ?: "Could not access Downloads/VidFetch.") }
             }
         }
     }

@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.DocumentsContract
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import com.vidfetch.app.domain.formatBytes
@@ -22,6 +23,7 @@ data class DownloadedMedia(
     val modifiedAt: Long,
     val legacyFile: File? = null,
     val pending: Boolean = false,
+    val document: Boolean = false,
 ) {
     val id: String get() = uri.toString()
     val size: String get() = formatBytes(sizeBytes)
@@ -31,16 +33,57 @@ data class DownloadedMedia(
 class DownloadedMediaRepository(private val context: Context) {
     private val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "VidFetch")
     private val resolver = context.contentResolver
-    private val videoExtensions = setOf("mp4", "mkv", "webm", "mov", "m4v", "avi", "ts")
+    private val videoExtensions = setOf("mp4", "mkv", "webm", "mov", "m4v", "avi", "ts", "3gp", "3g2", "mpeg", "mpg", "m2ts", "mts", "wmv", "flv", "ogv", "asf")
+    private val preferences = context.getSharedPreferences("downloads_folder", Context.MODE_PRIVATE)
+
+    fun hasFolderAccess(): Boolean = folderUri()?.let { uri ->
+        resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }
+    } == true
+
+    fun connectFolder(uri: Uri) {
+        require(uri.authority == "com.android.externalstorage.documents" &&
+            DocumentsContract.getTreeDocumentId(uri) == "primary:${Environment.DIRECTORY_DOWNLOADS}/VidFetch") {
+            "Choose the VidFetch folder inside Downloads."
+        }
+        resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        preferences.edit().putString("uri", uri.toString()).apply()
+    }
+
+    private fun folderUri(): Uri? = preferences.getString("uri", null)?.let(Uri::parse)
+
+    private fun listFolder(): List<DownloadedMedia> {
+        val tree = requireNotNull(folderUri())
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        val columns = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+        val result = mutableListOf<DownloadedMedia>()
+        resolver.query(children, columns, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1) ?: continue
+                val mime = cursor.getString(2).orEmpty()
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR ||
+                    (!mime.startsWith("video/") && name.substringAfterLast('.', "").lowercase() !in videoExtensions)) continue
+                result += DownloadedMedia(DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)), name,
+                    cursor.getLong(3), cursor.getLong(4), document = true)
+            }
+        } ?: error("Could not read Downloads/VidFetch. Allow folder access again.")
+        return result
+    }
 
     fun list(): List<DownloadedMedia> {
         val indexed = if (Build.VERSION.SDK_INT >= 29) listIndexed() else emptyList()
+        if (hasFolderAccess()) {
+            val pending = indexed.filter { it.pending }.mapTo(HashSet()) { it.title }
+            return listFolder().filterNot { it.title in pending }.sortedByDescending { it.modifiedAt }
+        }
         // Files made by older VidFetch versions may not have a MediaStore owner or row.
         val indexedNames = indexed.mapTo(HashSet()) { it.title }
         val legacy = runCatching { directory.listFiles().orEmpty() }.getOrDefault(emptyArray())
             .filter { it.isFile && it.canRead() && it.extension.lowercase() in videoExtensions && it.name !in indexedNames }
             .map(::legacyItem)
-        return (indexed.filterNot { it.pending } + legacy).sortedByDescending { it.modifiedAt }
+        return (indexed.filterNot { it.pending }.filter { item ->
+            runCatching { resolver.openFileDescriptor(item.uri, "r")?.use { true } ?: false }.getOrDefault(false)
+        } + legacy).sortedByDescending { it.modifiedAt }
     }
 
     private fun legacyItem(file: File) = DownloadedMedia(
@@ -95,11 +138,6 @@ class DownloadedMediaRepository(private val context: Context) {
         return folder
     }
 
-    fun finishedVideo(folder: File): File = folder.listFiles().orEmpty()
-        .filter { it.isFile && it.extension.lowercase() in videoExtensions }
-        .maxByOrNull(File::lastModified)
-        ?: error("The download finished without a playable video file.")
-
     fun publish(file: File) {
         if (Build.VERSION.SDK_INT >= 29) {
             val displayName = uniqueName(file.name, list().mapTo(HashSet()) { it.title })
@@ -141,7 +179,9 @@ class DownloadedMediaRepository(private val context: Context) {
         val name = "$base.$extension"
         if (name == item.title) return true
         if (list().any { it.title == name }) return false
-        return if (item.legacyFile != null) {
+        return if (item.document) {
+            DocumentsContract.renameDocument(resolver, item.uri, name) != null
+        } else if (item.legacyFile != null) {
             val old = item.legacyFile
             val target = File(directory, name)
             val renamed = !target.exists() && old.renameTo(target)
@@ -153,7 +193,9 @@ class DownloadedMediaRepository(private val context: Context) {
         }
     }
 
-    fun delete(item: DownloadedMedia): Boolean = if (item.legacyFile != null) {
+    fun delete(item: DownloadedMedia): Boolean = if (item.document) {
+        DocumentsContract.deleteDocument(resolver, item.uri)
+    } else if (item.legacyFile != null) {
         val deleted = item.legacyFile.delete()
         if (deleted) MediaScannerConnection.scanFile(context, arrayOf(item.legacyFile.absolutePath), null, null)
         deleted

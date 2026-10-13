@@ -7,6 +7,13 @@ fun formatBytes(bytes: Long?): String = bytes?.takeIf { it > 0 }?.let { b -> if 
 fun qualityLabel(height: Int?) = when (height) { null -> "Best available"; 720 -> "720p · HD"; 1080 -> "1080p · Full HD"; 1440 -> "1440p · QHD"; 2160 -> "2160p · 4K"; 4320 -> "4320p · 8K"; else -> "${height}p" }
 fun qualities(formats: List<VideoFormat>): List<VideoQuality> = listOf(VideoQuality(null, "Best available", null)) + formats.filter { it.hasVideo && (it.height ?: 0) > 0 }.groupBy { it.height!! }.map { (height, same) -> VideoQuality(height, qualityLabel(height), same.mapNotNull { it.filesize ?: it.approximateFilesize }.maxOrNull()) }.sortedByDescending { it.height }
 fun selectorFor(height: Int?, url: String = ""): String {
+    if (siteForUrl(url) == "youtube.com") {
+        val exact = height?.let { "[height=$it]" }.orEmpty()
+        val preferred = listOf("bestvideo*$exact+bestaudio[ext=m4a]", "bestvideo*$exact+bestaudio", "best$exact")
+        return (if (height == null) preferred else preferred + listOf(
+            "bestvideo*[height<=$height]+bestaudio[ext=m4a]", "bestvideo*[height<=$height]+bestaudio", "best[height<=$height]",
+        )).joinToString("/")
+    }
     if (siteForUrl(url) == "pornhub.com") {
         val exact = height?.let { "[height=$it]" }.orEmpty()
         val direct = listOf("https", "http").map { "best$exact[protocol=$it][ext=mp4]" }
