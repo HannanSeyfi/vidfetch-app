@@ -22,25 +22,30 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
 
     override suspend fun analyze(url: String): VideoInfo = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
-            parseVideoInfo(ExtractorRuntime.run(context, baseArguments(cookie) + listOf("--dump-single-json", "--skip-download", "--", url)))
+            extractWithCompatibility(url) { backend ->
+                parseVideoInfo(ExtractorRuntime.run(context, baseArguments(cookie, backend) + listOf("--dump-single-json", "--skip-download", "--", url), backend = backend))
+            }
         }
     }
 
     override suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): DownloadResult = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
-            val output = ExtractorRuntime.run(context, baseArguments(cookie) + listOf(
+            val output = extractWithCompatibility(url) { backend ->
+                ExtractorRuntime.run(context, baseArguments(cookie, backend) + listOf(
                 "-f", selectorFor(height, url), "--merge-output-format", "mp4", "-o", outputTemplate,
                 "--newline", "--progress", "--progress-template", "download:VIDFETCH_PROGRESS:%(progress._percent_str)s",
                 "--print", "after_move:VIDFETCH_HEIGHT:%(height)s", "--", url,
-            ), progress)
+                ), progress, backend)
+            }
             DownloadResult(output.lineSequence().firstOrNull { it.startsWith("VIDFETCH_HEIGHT:") }?.substringAfter(':')?.toIntOrNull())
         }
     }
 
-    private fun baseArguments(cookie: File?) = buildList {
-        addAll(listOf("--ignore-config", "--no-playlist", "--continue", "--retries", "10", "--fragment-retries", "10", "--socket-timeout", "30", "--no-cache-dir"))
+    private fun baseArguments(cookie: File?, backend: ExtractorBackend) = buildList {
+        addAll(listOf("--ignore-config", "--no-playlist", "--continue", "--retries", "10", "--fragment-retries", "10", "--socket-timeout", "30"))
         val native = context.applicationInfo.nativeLibraryDir
-        addAll(listOf("--js-runtimes", "quickjs:$native/libqjs-cli.so", "--ffmpeg-location", "$native/libffmpeg.so"))
+        if (backend == ExtractorBackend.CURRENT) addAll(listOf("--no-cache-dir", "--js-runtimes", "quickjs:$native/libqjs-cli.so"))
+        addAll(listOf("--ffmpeg-location", "$native/libffmpeg.so"))
         cookie?.let { addAll(listOf("--cookies", it.absolutePath)) }
         // Extractors can use curl_cffi themselves; do not force impersonation on every site.
     }

@@ -23,11 +23,13 @@ import kotlin.concurrent.thread
 internal object ExtractorRuntime {
     private val mutex = Mutex()
     private var initialized = false
+    private var compatibilityInitialized = false
 
-    suspend fun run(context: Context, arguments: List<String>, progress: ((Int) -> Unit)? = null): String = withContext(Dispatchers.IO) {
+    suspend fun run(context: Context, arguments: List<String>, progress: ((Int) -> Unit)? = null, backend: ExtractorBackend = ExtractorBackend.CURRENT): String = withContext(Dispatchers.IO) {
         mutex.withLock {
             prepare(context)
-            execute(context, listOf(binary(context).absolutePath) + arguments, progress)
+            if (backend == ExtractorBackend.COMPATIBILITY) prepareCompatibility(context)
+            execute(context, listOf(engineFile(context, backend).absolutePath) + arguments, progress, backend)
         }
     }
 
@@ -36,12 +38,16 @@ internal object ExtractorRuntime {
             prepare(context)
             val version = execute(context, listOf(binary(context).absolutePath, "--version")).trim()
             val packages = execute(context, listOf("-c", "import platform, curl_cffi; print('Python ' + platform.python_version() + ' · curl_cffi ' + curl_cffi.__version__)")).trim()
-            "yt-dlp $version · $packages · QuickJS-ng 0.16.2 · FFmpeg 8.1.2"
+            "yt-dlp $version · $packages · QuickJS-ng 0.16.2 · FFmpeg 8.1.2 · Reddit/RedGIFs compatibility ${BuildConfig.COMPATIBILITY_YTDLP_VERSION}"
         }
     }
 
-    internal suspend fun python(context: Context, arguments: List<String>): String = withContext(Dispatchers.IO) {
-        mutex.withLock { prepare(context); execute(context, arguments) }
+    internal suspend fun python(context: Context, arguments: List<String>, backend: ExtractorBackend = ExtractorBackend.CURRENT): String = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            prepare(context)
+            if (backend == ExtractorBackend.COMPATIBILITY) prepareCompatibility(context)
+            execute(context, arguments, backend = backend)
+        }
     }
 
     suspend fun update(context: Context): String = withContext(Dispatchers.IO) {
@@ -78,6 +84,25 @@ internal object ExtractorRuntime {
 
     private fun root(context: Context) = File(context.noBackupFilesDir, "extractor-runtime")
     private fun binary(context: Context) = File(root(context), "yt-dlp")
+    private fun compatibilityRoot(context: Context) = File(context.noBackupFilesDir, "extractor-compatibility")
+    internal fun engineFile(context: Context, backend: ExtractorBackend) =
+        if (backend == ExtractorBackend.CURRENT) binary(context) else File(compatibilityRoot(context), "yt-dlp")
+
+    private fun prepareCompatibility(context: Context) {
+        if (compatibilityInitialized) return
+        val root = compatibilityRoot(context).apply { mkdirs() }
+        val marker = File(root, "runtime-version")
+        val version = "${BuildConfig.COMPATIBILITY_RUNTIME_COMMIT}:zip-links-v1"
+        if (!marker.exists() || marker.readText() != version) {
+            unpack(File(context.applicationInfo.nativeLibraryDir, "libpython-compat.zip.so"), File(root, "python"))
+            File(root, "python/usr/lib/liblzma.so").delete()
+            val temporary = File(root, "yt-dlp.install")
+            context.resources.openRawResource(R.raw.ytdlp_compat).use { input -> temporary.outputStream().use { input.copyTo(it) } }
+            replace(temporary, engineFile(context, ExtractorBackend.COMPATIBILITY))
+            marker.writeText(version)
+        }
+        compatibilityInitialized = true
+    }
 
     private fun prepare(context: Context) {
         if (initialized) return
@@ -145,20 +170,21 @@ internal object ExtractorRuntime {
         }
     }.getOrNull()
 
-    private suspend fun execute(context: Context, arguments: List<String>, progress: ((Int) -> Unit)? = null): String = runInterruptible {
-        val root = root(context)
+    private suspend fun execute(context: Context, arguments: List<String>, progress: ((Int) -> Unit)? = null, backend: ExtractorBackend = ExtractorBackend.CURRENT): String = runInterruptible {
+        val compatible = backend == ExtractorBackend.COMPATIBILITY
+        val runtimeRoot = if (compatible) compatibilityRoot(context) else root(context)
         val native = File(context.applicationInfo.nativeLibraryDir)
-        val python = File(root, "python/usr")
-        val ffmpeg = File(root, "ffmpeg/usr")
-        val builder = ProcessBuilder(listOf(File(native, "libpython.so").absolutePath) + arguments)
+        val python = File(runtimeRoot, "python/usr")
+        val ffmpeg = File(root(context), "ffmpeg/usr")
+        val builder = ProcessBuilder(listOf(File(native, if (compatible) "libpython-compat.so" else "libpython.so").absolutePath) + arguments)
         builder.environment().apply {
             put("PYTHONHOME", python.absolutePath)
             put("PYTHONNOUSERSITE", "1")
             put("PYTHONUNBUFFERED", "1")
             put("LD_LIBRARY_PATH", "${python.absolutePath}/lib:${ffmpeg.absolutePath}/lib:${native.absolutePath}")
-            put("SSL_CERT_FILE", "${python.absolutePath}/lib/python3.14/site-packages/certifi/cacert.pem")
-            put("OPENSSL_MODULES", "${python.absolutePath}/lib/ossl-modules")
-            put("HOME", root.absolutePath)
+            put("SSL_CERT_FILE", if (compatible) "${python.absolutePath}/etc/tls/cert.pem" else "${python.absolutePath}/lib/python3.14/site-packages/certifi/cacert.pem")
+            if (compatible) remove("OPENSSL_MODULES") else put("OPENSSL_MODULES", "${python.absolutePath}/lib/ossl-modules")
+            put("HOME", runtimeRoot.absolutePath)
             put("TMPDIR", context.cacheDir.absolutePath)
             put("PATH", "${native.absolutePath}:${python.absolutePath}/bin:${get("PATH").orEmpty()}")
         }

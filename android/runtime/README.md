@@ -18,6 +18,12 @@ The build generates native libraries and the yt-dlp resource from runtime-lock.j
 
 The native contribution is not yet merged upstream. VidFetch uses its immutable commit and verifies downloaded content, rather than following the contributor's moving branch. ARM64 and ARMv7 binaries are distributed; x86_64 binaries are used only for instrumentation tests.
 
+## Reddit and RedGIFs compatibility runtime
+
+The separately packaged compatibility interpreter and Python data come from the released youtubedl-android 0.18.1 source at commit `d725d5c9a18c3a99a13ee0308bf78275dc310760`: https://github.com/yausername/youtubedl-android/tree/d725d5c9a18c3a99a13ee0308bf78275dc310760. The bundled compatibility yt-dlp version is 2025.11.12, and its Python version is 3.12. The ARM64 interpreter, Python archive and extractor bytes were compared against the published VidFetch 0.2.2 APK and match exactly. The payload is renamed to avoid replacing the current runtime, checksum-pinned in runtime-lock.json, and generated during the build. No generated binaries are committed.
+
+The older interpreter uses its own Python/OpenSSL libraries and CA bundle. Current FFmpeg/ffprobe perform media processing; Android tests verify that pairing, including separate-stream merging. Compatibility data and the fixed extractor live in a separate noBackupFilesDir subdirectory. The normal nightly updater changes only the primary extractor.
+
 The old wrapper dependency is removed. ExtractorRuntime unpacks runtime data in noBackupFilesDir, supplies the certificate and shared-library paths, invokes APK-installed executables without a shell, and serializes updates with extraction. The yt-dlp resource includes EJS components; QuickJS-ng runs those components without Deno. Native executables are never downloaded during app use.
 
 When changing the runtime, update the lockfile, BuildConfig runtime constants, component notices, and the Android runtime tests together. Keep the minimum supported Android API and both phone architectures.
