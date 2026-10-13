@@ -20,6 +20,55 @@ class ExtractorRuntimeTest {
     @Test fun youtubeSeparateStreamsPublishOnlyCompletedVideo() { checkYoutubeSeparateStreams() }
     @Test fun downloadsReflectCopiedMovedRestoredAndDeletedFiles() { checkDownloadsFolderContents() }
 
+    @Test fun mediaProcessesDoNotInheritPythonLibraries() = runBlocking {
+        for (backend in ExtractorBackend.entries) {
+            val output = ExtractorRuntime.python(context, listOf("-c", """
+                import inspect, os, ssl, subprocess, sys
+                parent = dict(os.environ)
+                assert getattr(subprocess.Popen, 'vidfetch_media_isolated', False), 'Python startup isolation hook did not run'
+                expected = parent['VIDFETCH_MEDIA_LIBRARY_PATH']
+                assert parent['PYTHONHOME'] + '/lib' not in expected.split(':')
+                forbidden = ('PYTHONHOME', 'PYTHONPATH', 'PYTHONNOUSERSITE', 'PYTHONUNBUFFERED', 'OPENSSL_MODULES', 'LD_PRELOAD')
+                # Dependency imports may legitimately launch helpers with their own minimal environment.
+                sys.path.insert(0, sys.argv[1])
+                from yt_dlp.utils import Popen
+                original = subprocess.Popen._execute_child
+                captured = []
+                def checked(self, *args, **kwargs):
+                    bound = inspect.signature(original).bind(self, *args, **kwargs).arguments
+                    command = bound['args'][0]
+                    environment = bound['env']
+                    if command in (parent['VIDFETCH_FFMPEG_EXECUTABLE'], parent['VIDFETCH_FFPROBE_EXECUTABLE']):
+                        assert environment['LD_LIBRARY_PATH'] == expected, environment['LD_LIBRARY_PATH']
+                        assert not any(key in environment for key in forbidden)
+                        captured.append(command)
+                    else:
+                        assert environment is None or environment['LD_LIBRARY_PATH'] == parent['LD_LIBRARY_PATH']
+                    return original(self, *args, **kwargs)
+                subprocess.Popen._execute_child = checked
+                for executable in (parent['VIDFETCH_FFMPEG_EXECUTABLE'], parent['VIDFETCH_FFPROBE_EXECUTABLE']):
+                    assert subprocess.run([executable, '-version'], capture_output=True, check=True).stdout
+                    with Popen([executable, '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(parent)) as process:
+                        stdout, stderr = process.communicate()
+                        assert process.returncode == 0, stderr
+                        assert stdout
+                subprocess.run(['/system/bin/sh', '-c', 'exit 0'], check=True)
+                subprocess.run(['/system/bin/sh', '-c', 'exit 0'], env=dict(parent), check=True)
+                assert len(captured) == 4
+                assert dict(os.environ) == parent, 'Media launches changed the extraction environment'
+                print('VIDFETCH_MEDIA_ISOLATION_OK ' + ssl.OPENSSL_VERSION)
+            """.trimIndent(), ExtractorRuntime.engineFile(context).absolutePath), backend)
+            assertTrue(output.contains("VIDFETCH_MEDIA_ISOLATION_OK"))
+        }
+        for (tool in listOf("ffmpeg", "ffprobe")) {
+            val environment = ExtractorRuntime.mediaProcessBuilder(context, tool, listOf("-version")).environment()
+            assertFalse(environment.getValue("LD_LIBRARY_PATH").contains("python/usr/lib"))
+            assertFalse(environment.containsKey("PYTHONHOME"))
+            assertFalse(environment.containsKey("OPENSSL_MODULES"))
+            assertTrue(ExtractorRuntime.media(context, tool, listOf("-version")).contains("$tool version"))
+        }
+    }
+
     @Test fun compatibilityRuntimeRestoresRedditAndRedgifsExtractionAndDownloads() = runBlocking {
         val backend = ExtractorBackend.COMPATIBILITY
         assertEquals(BuildConfig.BUNDLED_YTDLP_VERSION, ExtractorRuntime.run(context, listOf("--version"), backend = backend).trim())
@@ -73,7 +122,7 @@ class ExtractorRuntimeTest {
                     val destination = File(folder, "$label.mp4")
                     val output = cli(repository.downloadArguments(null, url, 360, destination.absolutePath))
                     assertTrue(output.contains("VIDFETCH_HEIGHT:240"))
-                    val completed = repository.completedDownload(output, destination.absolutePath, backend)
+                    val completed = repository.completedDownload(output, destination.absolutePath)
                     assertEquals(240, completed.height)
                     assertEquals(destination.canonicalFile, completed.file)
                     assertTrue(destination.length() > 1000)
