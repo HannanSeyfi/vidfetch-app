@@ -73,6 +73,9 @@ class ExtractorRuntimeTest {
                     val destination = File(folder, "$label.mp4")
                     val output = cli(repository.downloadArguments(null, url, 360, destination.absolutePath))
                     assertTrue(output.contains("VIDFETCH_HEIGHT:240"))
+                    val completed = repository.completedDownload(output, destination.absolutePath, backend)
+                    assertEquals(240, completed.height)
+                    assertEquals(destination.canonicalFile, completed.file)
                     assertTrue(destination.length() > 1000)
                     val probe = ExtractorRuntime.python(context, listOf("-c", """
                         import subprocess
