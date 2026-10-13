@@ -29,6 +29,9 @@ class ExtractorRuntimeTest {
                 expected = parent['VIDFETCH_MEDIA_LIBRARY_PATH']
                 assert parent['PYTHONHOME'] + '/lib' not in expected.split(':')
                 forbidden = ('PYTHONHOME', 'PYTHONPATH', 'PYTHONNOUSERSITE', 'PYTHONUNBUFFERED', 'OPENSSL_MODULES', 'LD_PRELOAD')
+                # Dependency imports may legitimately launch helpers with their own minimal environment.
+                sys.path.insert(0, sys.argv[1])
+                from yt_dlp.utils import Popen
                 original = subprocess.Popen._execute_child
                 captured = []
                 def checked(self, *args, **kwargs):
@@ -43,8 +46,6 @@ class ExtractorRuntimeTest {
                         assert environment is None or environment['LD_LIBRARY_PATH'] == parent['LD_LIBRARY_PATH']
                     return original(self, *args, **kwargs)
                 subprocess.Popen._execute_child = checked
-                sys.path.insert(0, sys.argv[1])
-                from yt_dlp.utils import Popen
                 for executable in (parent['VIDFETCH_FFMPEG_EXECUTABLE'], parent['VIDFETCH_FFPROBE_EXECUTABLE']):
                     assert subprocess.run([executable, '-version'], capture_output=True, check=True).stdout
                     with Popen([executable, '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(parent)) as process:
@@ -52,6 +53,7 @@ class ExtractorRuntimeTest {
                         assert process.returncode == 0, stderr
                         assert stdout
                 subprocess.run(['/system/bin/sh', '-c', 'exit 0'], check=True)
+                subprocess.run(['/system/bin/sh', '-c', 'exit 0'], env=dict(parent), check=True)
                 assert len(captured) == 4
                 assert dict(os.environ) == parent, 'Media launches changed the extraction environment'
                 print('VIDFETCH_MEDIA_ISOLATION_OK ' + ssl.OPENSSL_VERSION)
