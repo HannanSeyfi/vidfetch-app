@@ -60,7 +60,7 @@ jobs:
           arch: x86_64
           target: default
           working-directory: android
-          script: python3 tools/run_runtime_tests.py --live-url https://youtu.be/G83NKJCd4VY
+          script: python3 tools/run_runtime_tests.py --live-url https://youtu.be/Hs7xSAio4ko
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -14,6 +14,7 @@ import android.provider.DocumentsContract
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import com.vidfetch.app.domain.formatBytes
+import com.vidfetch.app.domain.videoFileExtensions
 import java.io.File
 
 data class DownloadedMedia(
@@ -33,7 +34,6 @@ data class DownloadedMedia(
 class DownloadedMediaRepository(private val context: Context) {
     private val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "VidFetch")
     private val resolver = context.contentResolver
-    private val videoExtensions = setOf("mp4", "mkv", "webm", "mov", "m4v", "avi", "ts", "3gp", "3g2", "mpeg", "mpg", "m2ts", "mts", "wmv", "flv", "ogv", "asf")
     private val preferences = context.getSharedPreferences("downloads_folder", Context.MODE_PRIVATE)
 
     fun hasFolderAccess(): Boolean = folderUri()?.let { uri ->
@@ -62,7 +62,7 @@ class DownloadedMediaRepository(private val context: Context) {
                 val name = cursor.getString(1) ?: continue
                 val mime = cursor.getString(2).orEmpty()
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR ||
-                    (!mime.startsWith("video/") && name.substringAfterLast('.', "").lowercase() !in videoExtensions)) continue
+                    (!mime.startsWith("video/") && name.substringAfterLast('.', "").lowercase() !in videoFileExtensions)) continue
                 result += DownloadedMedia(DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)), name,
                     cursor.getLong(3), cursor.getLong(4), document = true)
             }
@@ -79,7 +79,7 @@ class DownloadedMediaRepository(private val context: Context) {
         // Files made by older VidFetch versions may not have a MediaStore owner or row.
         val indexedNames = indexed.mapTo(HashSet()) { it.title }
         val legacy = runCatching { directory.listFiles().orEmpty() }.getOrDefault(emptyArray())
-            .filter { it.isFile && it.canRead() && it.extension.lowercase() in videoExtensions && it.name !in indexedNames }
+            .filter { it.isFile && it.canRead() && it.extension.lowercase() in videoFileExtensions && it.name !in indexedNames }
             .map(::legacyItem)
         return (indexed.filterNot { it.pending }.filter { item ->
             runCatching { resolver.openFileDescriptor(item.uri, "r")?.use { true } ?: false }.getOrDefault(false)
@@ -114,7 +114,7 @@ class DownloadedMediaRepository(private val context: Context) {
             val pending = cursor.getColumnIndexOrThrow(MediaStore.Downloads.IS_PENDING)
             while (cursor.moveToNext()) {
                 val title = cursor.getString(name) ?: continue
-                if (title.substringAfterLast('.', "").lowercase() !in videoExtensions) continue
+                if (title.substringAfterLast('.', "").lowercase() !in videoFileExtensions) continue
                 result += DownloadedMedia(
                     uri = ContentUris.withAppendedId(collection, cursor.getLong(id)),
                     title = title,

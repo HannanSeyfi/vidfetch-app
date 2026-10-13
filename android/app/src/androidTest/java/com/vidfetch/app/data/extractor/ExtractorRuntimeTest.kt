@@ -196,7 +196,9 @@ class ExtractorRuntimeTest {
         val url = ExtractorInstrumentationRunner.active.arguments.getString("liveUrl") ?: return@runBlocking
         val repository = YtDlpRepositoryImpl(context)
         val info = repository.analyze(url)
-        assertEquals("G83NKJCd4VY", info.id)
+        val input = android.net.Uri.parse(url)
+        val expectedId = if (input.host == "youtu.be") input.lastPathSegment else input.getQueryParameter("v")
+        assertEquals(expectedId, info.id)
         assertTrue(info.formats.any { it.hasVideo })
         val destination = File(context.cacheDir, "live-smoke.%(ext)s")
         try {

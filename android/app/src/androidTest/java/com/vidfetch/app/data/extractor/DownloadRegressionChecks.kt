@@ -59,9 +59,10 @@ internal fun checkYoutubeSeparateStreams() = runBlocking {
 internal fun checkDownloadsFolderContents() = runBlocking {
     val runner = ExtractorInstrumentationRunner.active
     val context = runner.targetContext
+    fun shell(command: String) { android.os.ParcelFileDescriptor.AutoCloseInputStream(runner.uiAutomation.executeShellCommand(command)).use { it.readBytes() } }
     if (Build.VERSION.SDK_INT <= 28) {
-        runner.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.READ_EXTERNAL_STORAGE)
-        runner.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        shell("pm grant ${context.packageName} ${Manifest.permission.READ_EXTERNAL_STORAGE}")
+        shell("pm grant ${context.packageName} ${Manifest.permission.WRITE_EXTERNAL_STORAGE}")
     }
     val name = "folder-fixture-${java.util.UUID.randomUUID()}"
     val source = File(context.cacheDir, "$name.mp4")
@@ -72,7 +73,6 @@ internal fun checkDownloadsFolderContents() = runBlocking {
     val renamed = File(directory, "$name-renamed.mp4")
     val media = DownloadedMediaRepository(context)
     var activity: android.app.Activity? = null
-    fun shell(command: String) { android.os.ParcelFileDescriptor.AutoCloseInputStream(runner.uiAutomation.executeShellCommand(command)).use { it.readBytes() } }
     try {
         ExtractorRuntime.python(context, listOf("-c", """
             import subprocess, sys
@@ -112,14 +112,21 @@ internal fun checkDownloadsFolderContents() = runBlocking {
 private fun clickText(text: String) {
     val runner = ExtractorInstrumentationRunner.active
     val deadline = SystemClock.uptimeMillis() + 15_000
+    var visible = emptyList<String>()
     while (SystemClock.uptimeMillis() < deadline) {
-        val nodes = runner.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(text).orEmpty()
-        for (candidate in nodes.filter { it.text?.toString().equals(text, ignoreCase = true) }) {
+        val nodes = mutableListOf<AccessibilityNodeInfo>()
+        fun visit(node: AccessibilityNodeInfo) {
+            nodes += node
+            for (index in 0 until node.childCount) node.getChild(index)?.let(::visit)
+        }
+        runner.uiAutomation.rootInActiveWindow?.let(::visit)
+        visible = nodes.mapNotNull { it.text?.toString() ?: it.contentDescription?.toString() }
+        for (candidate in nodes.filter { it.text?.toString()?.trim().equals(text, ignoreCase = true) || it.contentDescription?.toString()?.trim().equals(text, ignoreCase = true) }) {
             var node: AccessibilityNodeInfo? = candidate
             while (node != null && !node.isClickable) node = node.parent
             if (node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { SystemClock.sleep(500); return }
         }
         SystemClock.sleep(200)
     }
-    error("Could not click '$text' in Android UI")
+    error("Could not click '$text' in Android UI. Visible: $visible")
 }

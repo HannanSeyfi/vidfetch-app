@@ -57,6 +57,7 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         val file = File(JSONArray("[$value]").getString(0)).canonicalFile
         val folder = File(outputTemplate).parentFile!!.canonicalFile
         check(file.parentFile == folder && file.isFile && file.length() > 0) { "The completed video is missing. Video/audio merging may have failed." }
+        check(file.extension.lowercase() in videoFileExtensions) { "The downloaded file is not a video file." }
         val probe = JSONObject(ExtractorRuntime.python(context, listOf("-c", """
             import subprocess, sys
             print(subprocess.check_output([sys.argv[1], '-v', 'error', '-show_streams', '-of', 'json', sys.argv[2]], text=True))

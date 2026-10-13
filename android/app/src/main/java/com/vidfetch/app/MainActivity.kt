@@ -365,9 +365,10 @@ class MainActivity : ComponentActivity() {
 
 @Composable private fun VideoThumbnail(item: DownloadedMedia) {
     val context = LocalContext.current
-    val request = remember(item.id) {
+    val request = remember(item.id, item.modifiedAt, item.sizeBytes) {
         ImageRequest.Builder(context)
             .data(item.uri)
+            .memoryCacheKey("${item.id}:${item.modifiedAt}:${item.sizeBytes}")
             .videoFrameMillis(1000)
             .decoderFactory { result, options, _ -> VideoFrameDecoder(result.source, options) }
             .build()
