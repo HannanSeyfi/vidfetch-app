@@ -196,7 +196,7 @@ internal fun friendlyError(error: Exception): String {
     val detail = error.message.orEmpty()
     return when {
         "sign in to confirm" in detail.lowercase() || "not a bot" in detail.lowercase() -> "YouTube requires verification for this video. Your YouTube app sign-in is private to that app and cannot be reused by VidFetch."
-        "HTTP Error 403" in detail || "Forbidden" in detail -> "This website rejected the request (HTTP 403). Try Update extractor in Settings; if it continues, YouTube may require verification for this video."
+        "403" in detail || "forbidden" in detail.lowercase() -> "This website rejected the request (HTTP 403). Try Update extractor in Settings, then try again."
         "older than 90 days" in detail -> "The bundled extractor is outdated. Open Settings and choose Update extractor, then try again."
         else -> "Could not complete this request: ${detail.ifBlank { "extractor error" }}"
     }

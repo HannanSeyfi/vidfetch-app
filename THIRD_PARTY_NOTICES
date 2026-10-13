@@ -3,7 +3,8 @@ VidFetch includes or depends on third-party components. Their licenses remain wi
 * yt-dlp — Unlicense (https://github.com/yt-dlp/yt-dlp)
 * Native runtime packaging derived from youtubedl-android contribution — GPL-3.0 (https://github.com/yausername/youtubedl-android/pull/361). Pinned sources and packaging recipes: android/runtime/README.md.
 * FFmpeg/ffprobe 8.1.2 and bundled native runtime dependencies — LGPL/GPL and their respective component licenses (https://ffmpeg.org/legal.html). Sources and packaging recipes: android/runtime/README.md.
-* CPython 3.14 — Python Software Foundation License (https://github.com/python/cpython)
+* CPython 3.14 and the 3.12 compatibility runtime — Python Software Foundation License (https://github.com/python/cpython)
+* youtubedl-android 0.18.1 compatibility payload — GPL-3.0; pinned source and packaging recipes: android/runtime/README.md (https://github.com/yausername/youtubedl-android/tree/d725d5c9a18c3a99a13ee0308bf78275dc310760)
 * QuickJS-ng 0.16.2 — MIT (https://github.com/quickjs-ng/quickjs)
 * curl_cffi/curl-impersonate and cffi — MIT and their bundled dependency licenses (https://github.com/lexiforest/curl_cffi, https://github.com/lexiforest/curl-impersonate, https://github.com/python-cffi/cffi)
 * certifi — MPL-2.0 (https://github.com/certifi/python-certifi)

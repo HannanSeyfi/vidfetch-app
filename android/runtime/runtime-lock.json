@@ -111,6 +111,43 @@
       "path": "res/raw/ytdlp",
       "url": "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/2026.10.10.233141/yt-dlp",
       "sha256": "f40b6a9e4c5786360953911cab5d2f87507626b8fb7bfee3f8f1c2e5cf341fae"
+    },
+    {
+      "path": "res/raw/ytdlp_compat",
+      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/res/raw/ytdlp",
+      "sha256": "89a0d9058ea9018e380b7771898ff46e393a1986dcd13fef331693c87ce1fca4"
+    },
+    {
+      "path": "jni/arm64-v8a/libpython-compat.so",
+      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/jniLibs/arm64-v8a/libpython.so",
+      "sha256": "58ba29cfc5a6d88281c07b2b480fb1d8cce1b78f280b002347f792cfd9cf5901"
+    },
+    {
+      "path": "jni/arm64-v8a/libpython-compat.zip.so",
+      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/jniLibs/arm64-v8a/libpython.zip.so",
+      "sha256": "7edecb6c9bd3a94456168d44911d8aea9f917bedef90c320a29500d92ac3eb62"
+    },
+    {
+      "path": "jni/armeabi-v7a/libpython-compat.so",
+      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/jniLibs/armeabi-v7a/libpython.so",
+      "sha256": "33fb8c0fd0a6c2b0d8178f68c05c4d62e09d30d49455ec65ce3a4edb52fa74d0"
+    },
+    {
+      "path": "jni/armeabi-v7a/libpython-compat.zip.so",
+      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/jniLibs/armeabi-v7a/libpython.zip.so",
+      "sha256": "4d860f1434442c69f128279705806916def2b323d1b43b7fa6ada7dfab0a0571"
+    },
+    {
+      "path": "jni/x86_64/libpython-compat.so",
+      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/jniLibs/x86_64/libpython.so",
+      "sha256": "894dd7e4f8dcc47dd8e87b5d2696e0e6eb03d125683e8b81475682fb8f619e87"
+    },
+    {
+      "path": "jni/x86_64/libpython-compat.zip.so",
+      "url": "https://raw.githubusercontent.com/yausername/youtubedl-android/d725d5c9a18c3a99a13ee0308bf78275dc310760/library/src/main/jniLibs/x86_64/libpython.zip.so",
+      "sha256": "27caa316e09681ada860fdb6b35c1914e541e266e674141361758ac127fe2f15"
     }
-  ]
+  ],
+  "compatibilityYtDlpVersion": "2025.11.12",
+  "compatibilityRuntimeCommit": "d725d5c9a18c3a99a13ee0308bf78275dc310760"
 }

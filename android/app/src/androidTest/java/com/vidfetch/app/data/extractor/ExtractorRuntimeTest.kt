@@ -14,6 +14,32 @@ import kotlin.concurrent.thread
 class ExtractorRuntimeTest {
     private val context: Context get() = ExtractorInstrumentationRunner.active.targetContext
 
+    @Test fun compatibilityRuntimeRestoresRedditAndRedgifsExtractionAndDownloads() = runBlocking {
+        val backend = ExtractorBackend.COMPATIBILITY
+        assertEquals(BuildConfig.COMPATIBILITY_YTDLP_VERSION, ExtractorRuntime.run(context, listOf("--version"), backend = backend).trim())
+        val version = ExtractorRuntime.python(context, listOf("-c", "import sys, ssl; print(sys.version); print(ssl.OPENSSL_VERSION)"), backend)
+        assertTrue(version.contains("3.12."))
+        val folder = File(context.cacheDir, "compatibility-test-media").apply { mkdirs() }
+        val native = context.applicationInfo.nativeLibraryDir
+        try {
+            ExtractorRuntime.python(context, listOf("-c", """
+                import subprocess
+                subprocess.check_call(['$native/libffmpeg.so', '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=320x240:d=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:v', 'libx264', '-c:a', 'aac', '-shortest', '${folder.absolutePath}/source.mp4'])
+                subprocess.check_call(['$native/libffmpeg.so', '-y', '-i', '${folder.absolutePath}/source.mp4', '-c', 'copy', '-hls_time', '1', '-hls_list_size', '0', '${folder.absolutePath}/source.m3u8'])
+                subprocess.check_call(['$native/libffmpeg.so', '-y', '-i', '${folder.absolutePath}/source.mp4', '-c', 'copy', '-f', 'dash', '${folder.absolutePath}/source.mpd'])
+            """.trimIndent()), backend)
+            val script = File(folder, "compatibility_check.py")
+            ExtractorInstrumentationRunner.active.context.assets.open("compatibility_check.py").use { input -> script.outputStream().use { input.copyTo(it) } }
+            FixtureServer(folder).use { server ->
+                val output = ExtractorRuntime.python(context, listOf(script.absolutePath, ExtractorRuntime.engineFile(context, backend).absolutePath,
+                    native, "http://127.0.0.1:${server.port}", folder.absolutePath), backend)
+                assertTrue(output.contains("VIDFETCH_COMPATIBILITY_OK"))
+            }
+            val info = YtDlpRepositoryImpl(context).parseVideoInfo(File(folder, "compat-info.json").readText())
+            assertEquals(listOf(null, 240), qualities(info.formats).map { it.height })
+        } finally { folder.deleteRecursively() }
+    }
+
     @Test fun pornhubResolutionsRemainSelectableWithoutCodecMetadata() {
         val repository = YtDlpRepositoryImpl(context)
         // Pornhub's direct MP4 formats contain url, format_id and height, without codecs.
@@ -142,8 +168,9 @@ private class FixtureServer(private val folder: File) : AutoCloseable {
                     val file = File(folder, request[1].substringBefore('?').removePrefix("/"))
                     val valid = file.canonicalPath.startsWith(folder.canonicalPath + File.separator) && file.isFile
                     val bytes = if (valid) file.readBytes() else byteArrayOf()
-                    val type = when (file.extension) { "m3u8" -> "application/vnd.apple.mpegurl"; "mpd" -> "application/dash+xml"; "ts" -> "video/mp2t"; else -> "video/mp4" }
-                    val header = "HTTP/1.1 ${if (valid) "200 OK" else "404 Not Found"}\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                    val type = when (file.extension) { "m3u8" -> "application/vnd.apple.mpegurl"; "mpd" -> "application/dash+xml"; "ts" -> "video/mp2t"; "html" -> "text/html"; "json" -> "application/json"; else -> "video/mp4" }
+                    val canonical = if (file.name == "share.html") "X-Fixture-Url: https://www.reddit.com/r/videos/comments/fixture123/\r\n" else ""
+                    val header = "HTTP/1.1 ${if (valid) "200 OK" else "404 Not Found"}\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n${canonical}Connection: close\r\n\r\n"
                     socket.getOutputStream().write(header.toByteArray())
                     if (request[0] != "HEAD") socket.getOutputStream().write(bytes)
                 }

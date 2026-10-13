@@ -1,6 +1,6 @@
 # VidFetch for Android
 
-Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.2 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
+Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.3 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
 
 ## Multi-site extraction
 
@@ -11,6 +11,8 @@ Site support comes from yt-dlp's extractors. VidFetch leaves YouTube client sele
 Quality choices include formats with a known resolution even when the video codec is unspecified, as with Pornhub's direct MP4 formats. Formats explicitly marked as having no video are excluded; duplicate resolutions are grouped.
 
 The existing Update extractor button downloads an official nightly, verifies its SHA-256 checksum and version, and installs it atomically. Upgrading the app replaces an older bundled extractor while retaining a newer installed nightly.
+
+Reddit and RedGIFs have an automatic compatibility retry for HTTP 403 or Reddit anonymous-session rejection. The retry uses the Python 3.12/networking payload and yt-dlp 2025.11.12 shipped in 0.2.2, with the current FFmpeg processing runtime. It applies to validated Reddit/RedGIFs domains and their media subdomains, in both analysis and downloading. Other sites continue to use the current runtime. Both attempts use the same optional cookie snapshot; cancellation and unrelated errors are not retried. Compatibility downloads restart partial files to avoid combining streams selected by different engines. The compatibility engine is bundled and fixed; Update extractor updates the primary engine. Its binaries are separately pinned and kept in private storage. See runtime/README.md for provenance.
 
 ## Optional site cookies
 
@@ -43,7 +45,7 @@ For an x86_64 Android emulator:
 ./gradlew -PemulatorBuild=true connectedDebugAndroidTest
 ```
 
-Instrumentation tests start the actual packaged interpreter, import curl_cffi, execute QuickJS and FFmpeg/ffprobe, enumerate browser impersonation targets, download generated MP4, HLS and separate-stream DASH media without cookies, check audio/video streams, and verify cookie storage and switches. A metadata regression test checks the JSON-to-quality-list path with Pornhub-style direct MP4 formats, missing/null/empty codec metadata, duplicate resolutions, and audio-only entries. GitHub CI exercises API 24 and API 35 using tools/run_runtime_tests.py with non-streaming ADB installation to avoid the old emulator install-write transport issue. Required and live test reports are stored separately. An optional live check uses the supplied YouTube example; external site or IP restrictions can affect that check independently of the deterministic runtime tests.
+Instrumentation tests start both packaged interpreters, run current-runtime dependencies and tools, and exercise the compatibility engine's real Reddit and RedGIFs extractors against synthetic HTTP fixtures, including a Reddit share redirect, anonymous RedGIFs token acquisition, video extraction, MP4/HLS/DASH downloads and audio/video verification. Other checks cover cookie controls and Pornhub quality metadata. JVM tests check retry scope, cancellation, final errors and HTTP 403 messages. GitHub CI exercises API 24 and API 35 using tools/run_runtime_tests.py with non-streaming ADB installation to avoid the old emulator install-write transport issue. Required and live test reports are stored separately. An optional live check uses the supplied YouTube example; external site or IP restrictions can affect that check independently of the deterministic runtime tests.
 
 ## Limitations
 
