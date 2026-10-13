@@ -17,6 +17,9 @@ import kotlin.concurrent.thread
 class ExtractorRuntimeTest {
     private val context: Context get() = ExtractorInstrumentationRunner.active.targetContext
 
+    @Test fun youtubeSeparateStreamsPublishOnlyCompletedVideo() { checkYoutubeSeparateStreams() }
+    @Test fun downloadsReflectCopiedMovedRestoredAndDeletedFiles() { checkDownloadsFolderContents() }
+
     @Test fun compatibilityRuntimeRestoresRedditAndRedgifsExtractionAndDownloads() = runBlocking {
         val backend = ExtractorBackend.COMPATIBILITY
         assertEquals(BuildConfig.BUNDLED_YTDLP_VERSION, ExtractorRuntime.run(context, listOf("--version"), backend = backend).trim())
@@ -70,6 +73,9 @@ class ExtractorRuntimeTest {
                     val destination = File(folder, "$label.mp4")
                     val output = cli(repository.downloadArguments(null, url, 360, destination.absolutePath))
                     assertTrue(output.contains("VIDFETCH_HEIGHT:240"))
+                    val completed = repository.completedDownload(output, destination.absolutePath, backend)
+                    assertEquals(240, completed.height)
+                    assertEquals(destination.canonicalFile, completed.file)
                     assertTrue(destination.length() > 1000)
                     val probe = ExtractorRuntime.python(context, listOf("-c", """
                         import subprocess
@@ -190,7 +196,9 @@ class ExtractorRuntimeTest {
         val url = ExtractorInstrumentationRunner.active.arguments.getString("liveUrl") ?: return@runBlocking
         val repository = YtDlpRepositoryImpl(context)
         val info = repository.analyze(url)
-        assertEquals("G83NKJCd4VY", info.id)
+        val input = android.net.Uri.parse(url)
+        val expectedId = if (input.host == "youtu.be") input.lastPathSegment else input.getQueryParameter("v")
+        assertEquals(expectedId, info.id)
         assertTrue(info.formats.any { it.hasVideo })
         val destination = File(context.cacheDir, "live-smoke.%(ext)s")
         try {
@@ -201,7 +209,7 @@ class ExtractorRuntimeTest {
     }
 }
 
-private class FixtureServer(private val folder: File) : AutoCloseable {
+internal class FixtureServer(private val folder: File) : AutoCloseable {
     private val server = ServerSocket(0)
     val port: Int get() = server.localPort
     private val worker = thread(isDaemon = true) {

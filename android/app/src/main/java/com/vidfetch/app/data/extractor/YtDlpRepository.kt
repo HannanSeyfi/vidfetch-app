@@ -9,7 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-data class DownloadResult(val height: Int?)
+data class DownloadResult(val height: Int?, val file: File)
 
 interface YtDlpRepository {
     suspend fun analyze(url: String): VideoInfo
@@ -30,10 +30,10 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
 
     override suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): DownloadResult = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
-            val output = extractWithCompatibility(url) { backend ->
-                ExtractorRuntime.run(context, downloadArguments(cookie, url, height, outputTemplate), progress, backend)
+            extractWithCompatibility(url) { backend ->
+                val output = ExtractorRuntime.run(context, downloadArguments(cookie, url, height, outputTemplate), progress, backend)
+                completedDownload(output, outputTemplate, backend)
             }
-            DownloadResult(output.lineSequence().firstOrNull { it.startsWith("VIDFETCH_HEIGHT:") }?.substringAfter(':')?.toIntOrNull())
         }
     }
 
@@ -42,11 +42,31 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
     internal fun downloadArguments(cookie: File?, url: String, height: Int?, outputTemplate: String): List<String> {
         // Any retried site request starts clean, including a retry on the modern runtime.
         val restart = if (supportsCompatibility(url)) listOf("--force-overwrites", "--no-continue") else emptyList()
-        return baseArguments(cookie) + restart + listOf(
+        val youtube = if (siteForUrl(url) == "youtube.com") listOf("--format-sort", "res,vcodec:h264,acodec:aac", "--remux-video", "mp4") else emptyList()
+        return baseArguments(cookie) + restart + youtube + listOf(
             "-f", selectorFor(height, url), "--merge-output-format", "mp4", "-o", outputTemplate,
             "--newline", "--progress", "--progress-template", "download:VIDFETCH_PROGRESS:%(progress._percent_str)s",
-            "--print", "after_move:VIDFETCH_HEIGHT:%(height)s", "--", url,
+            "--print", "after_move:VIDFETCH_HEIGHT:%(height)s",
+            "--print", "after_move:VIDFETCH_FILE:%(filepath)j", "--", url,
         )
+    }
+
+    internal suspend fun completedDownload(output: String, outputTemplate: String, backend: ExtractorBackend = ExtractorBackend.CURRENT): DownloadResult {
+        val value = output.lineSequence().lastOrNull { it.startsWith("VIDFETCH_FILE:") }?.substringAfter(':')
+            ?: error("The extractor did not report a completed video. Video/audio merging may have failed.")
+        val file = File(JSONArray("[$value]").getString(0)).canonicalFile
+        val folder = File(outputTemplate).parentFile!!.canonicalFile
+        check(file.parentFile == folder && file.isFile && file.length() > 0) { "The completed video is missing. Video/audio merging may have failed." }
+        check(file.extension.lowercase() in videoFileExtensions) { "The downloaded file is not a video file." }
+        val probe = JSONObject(ExtractorRuntime.python(context, listOf("-c", """
+            import subprocess, sys
+            print(subprocess.check_output([sys.argv[1], '-v', 'error', '-show_streams', '-of', 'json', sys.argv[2]], text=True))
+        """.trimIndent(), "${context.applicationInfo.nativeLibraryDir}/libffprobe.so", file.absolutePath), backend))
+        val streams = probe.getJSONArray("streams")
+        val video = (0 until streams.length()).map { streams.getJSONObject(it) }.firstOrNull {
+            it.optString("codec_type") == "video" && it.optJSONObject("disposition")?.optInt("attached_pic") != 1
+        } ?: error("The downloaded file contains no video stream. It was not saved to Downloads.")
+        return DownloadResult(video.optInt("height").takeIf { it > 0 }, file)
     }
 
     private fun baseArguments(cookie: File?) = buildList {

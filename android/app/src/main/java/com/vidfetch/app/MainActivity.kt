@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -89,6 +91,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
@@ -127,6 +130,11 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         sharedLink.value = sharedUrl(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ViewModelProvider(this)[VidFetchViewModel::class.java].refreshDownloads()
     }
 
     private fun beginDownload(video: VideoInfo, height: Int?) {
@@ -179,6 +187,9 @@ class MainActivity : ComponentActivity() {
         val progress by DownloadState.progress.collectAsState()
         var tab by rememberSaveable { mutableIntStateOf(0) }
         val legacyReadPermission = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { model.refreshDownloads() }
+        val folderPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            uri?.let(model::connectDownloadsFolder)
+        }
         LaunchedEffect(sharedUrl) { model.acceptSharedUrl(sharedUrl) }
         Scaffold(bottomBar = {
             NavigationBar {
@@ -196,7 +207,9 @@ class MainActivity : ComponentActivity() {
         }) { padding ->
             when (tab) {
                 0 -> HomeScreen(Modifier.padding(padding), state, progress, model::setUrl, model::setSelected, model::analyze, startDownload)
-                1 -> DownloadsScreen(Modifier.padding(padding), state, model::refreshDownloads, model::open, model::share, model::delete, model::rename)
+                1 -> DownloadsScreen(Modifier.padding(padding), state, model::refreshDownloads, {
+                    folderPicker.launch(DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:${Environment.DIRECTORY_DOWNLOADS}/VidFetch"))
+                }, model::open, model::share, model::delete, model::rename)
                 else -> SettingsScreen(Modifier.padding(padding), darkTheme, { darkTheme = it; preferences.edit().putBoolean("dark_theme", it).apply() }, state, progress, model::updateExtractor, model::importCookies, model::setCookiesEnabled, model::deleteCookies)
             }
         }
@@ -277,6 +290,7 @@ class MainActivity : ComponentActivity() {
     modifier: Modifier,
     state: VidFetchUiState,
     refresh: () -> Unit,
+    connectFolder: () -> Unit,
     open: (DownloadedMedia) -> Unit,
     share: (DownloadedMedia) -> Unit,
     delete: (DownloadedMedia) -> Unit,
@@ -298,6 +312,15 @@ class MainActivity : ComponentActivity() {
         }
         if (state.downloadsLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         state.downloadsMessage?.let { message -> item { MessageCard(message) } }
+        if (Build.VERSION.SDK_INT >= 29 && !state.downloadsFolderConnected) item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Show all videos in this folder", style = MaterialTheme.typography.titleMedium)
+                    Text("Allow access to Downloads/VidFetch to include videos moved into the folder.")
+                    OutlinedButton(onClick = connectFolder) { Text("Allow folder access") }
+                }
+            }
+        }
         if (!state.downloadsLoading && state.downloads.isEmpty()) item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -342,9 +365,10 @@ class MainActivity : ComponentActivity() {
 
 @Composable private fun VideoThumbnail(item: DownloadedMedia) {
     val context = LocalContext.current
-    val request = remember(item.id) {
+    val request = remember(item.id, item.modifiedAt, item.sizeBytes) {
         ImageRequest.Builder(context)
             .data(item.uri)
+            .memoryCacheKey("${item.id}:${item.modifiedAt}:${item.sizeBytes}")
             .videoFrameMillis(1000)
             .decoderFactory { result, options, _ -> VideoFrameDecoder(result.source, options) }
             .build()
