@@ -21,6 +21,8 @@ To get this option in an existing Colab session, **stop the old bot cell, reopen
 
 Commands: `/start`, `/help`, `/status`, `/cancel`, and `/id`. Cancelling stops active download/encoding subprocesses and cleans temporary files. Menus belong to the user who requested them, expire after 30 minutes, and are invalidated after use or when that user requests another link.
 
+Delivered video and audio captions include the title, file details, and a clickable **Source** link to the original URL you sent. Very long URLs use an **Original link** label to fit Telegram's caption limit while preserving the complete link.
+
 The optional `allowed_user_ids` field in the second notebook cell accepts comma-separated numeric Telegram user IDs. Find your ID using `/id`, stop the cell, enter your ID, and restart. A blank field allows anyone who discovers the bot to use it in private chats. Groups are not supported.
 
 ## Limits and behavior

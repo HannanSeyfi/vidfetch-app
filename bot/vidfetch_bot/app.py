@@ -12,6 +12,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 
 from . import media
@@ -26,6 +27,18 @@ HELP = (
     "/cancel — cancel your current request\n/status — show your request status\n"
     "/id — show your Telegram user ID\n/help — show these instructions"
 )
+
+
+def delivery_caption(title: str, details: str, url: str) -> str:
+    """Keep the full source URL clickable, including URLs beyond the caption limit."""
+    visible = f"{title}\n{details}\n\nSource: {url}"
+    # Telegram counts entities in UTF-16 units. Use a short link label when the
+    # full visible URL would exceed the caption budget; the href stays intact.
+    label = url if len(visible.encode("utf-16-le")) // 2 <= 1024 else "Original link"
+    return (
+        f"{escape(title)}\n{escape(details)}\n\n"
+        f'Source: <a href="{escape(url, quote=True)}">{escape(label)}</a>'
+    )
 
 
 @dataclass
@@ -234,7 +247,7 @@ class Bot:
                 await self.api.upload_audio(
                     owner[0],
                     audio.path,
-                    f"{selection.analysis.title}\n{details}",
+                    delivery_caption(selection.analysis.title, details, selection.url),
                     title=selection.analysis.title,
                     duration=math.ceil(audio.probe.duration),
                 )
@@ -254,7 +267,7 @@ class Bot:
             await self.api.upload(
                 owner[0],
                 prepared.path,
-                f"{selection.analysis.title}\n{details}",
+                delivery_caption(selection.analysis.title, details, selection.url),
                 width=prepared.probe.width,
                 height=prepared.probe.height,
                 duration=math.ceil(prepared.probe.duration),

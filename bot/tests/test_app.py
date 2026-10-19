@@ -2,11 +2,42 @@ import asyncio
 import tempfile
 import time
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from vidfetch_bot import media
-from vidfetch_bot.app import Bot, Selection, run_bot
+from vidfetch_bot.app import Bot, Selection, delivery_caption, run_bot
+
+
+class CaptionTests(unittest.TestCase):
+    def test_caption_preserves_special_characters_and_long_clickable_url(self):
+        class ParsedCaption(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.text = ""
+                self.urls = []
+
+            def handle_starttag(self, tag, attrs):
+                self.assert_safe_tag(tag)
+                self.urls.append(dict(attrs)["href"])
+
+            def assert_safe_tag(self, tag):
+                if tag != "a":
+                    raise AssertionError("The title introduced unexpected HTML markup")
+
+            def handle_data(self, data):
+                self.text += data
+
+        title = 'A <video> & "music" 🎵'
+        for url in ("https://example.com/watch?v=1&list=2", "https://example.com/" + "x" * 2000):
+            with self.subTest(url_length=len(url)):
+                parser = ParsedCaption()
+                parser.feed(delivery_caption(title, "720p · 12.0 MB", url))
+                self.assertEqual(parser.urls, [url])
+                self.assertTrue(parser.text.startswith(title + "\n720p · 12.0 MB\n\nSource: "))
+                self.assertLessEqual(len(parser.text.encode("utf-16-le")) // 2, 1024)
+                self.assertTrue(parser.text.endswith(url if len(url) < 1000 else "Original link"))
 
 
 class FakeTelegram:
@@ -109,6 +140,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.api.uploads[0][1], b"video-data")
         self.assertIn("360p", self.api.uploads[0][2])
         self.assertIn("compressed", self.api.uploads[0][2])
+        self.assertIn('Source: <a href="https://example.com/video">', self.api.uploads[0][2])
         self.assertEqual(self.api.uploads[0][3]["duration"], 13)
         self.assertFalse(self.bot.selections)
 
@@ -170,6 +202,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.api.uploads)
         self.assertEqual(self.api.audio_uploads[0][1], b"prepared-audio")
         self.assertIn("compressed", self.api.audio_uploads[0][2])
+        self.assertIn('Source: <a href="https://example.com/video">', self.api.audio_uploads[0][2])
         self.assertEqual(self.api.audio_uploads[0][3], {"title": "Example audio", "duration": 13})
         self.assertFalse(self.bot.selections)
 

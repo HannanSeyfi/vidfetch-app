@@ -25,6 +25,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 path.write_bytes(b"actual-audio-payload")
                 await api.upload_audio(12, path, "Example", title="Track title", duration=10)
             self.assertEqual(calls[0][0], "sendAudio")
+            self.assertIn(b'name="parse_mode"', calls[0][1])
+            self.assertIn(b"HTML", calls[0][1])
             for expected in (
                 b"actual-audio-payload",
                 b'name="audio"',
@@ -54,6 +56,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 path.write_bytes(b"actual-video-payload")
                 await api.upload(12, path, "Example", width=640, height=360, duration=10)
             self.assertEqual(calls[1][0], "sendVideo")
+            self.assertIn(b'name="parse_mode"', calls[1][2])
+            self.assertIn(b"HTML", calls[1][2])
             self.assertIn(b"actual-video-payload", calls[1][2])
             self.assertIn(b'name="supports_streaming"', calls[1][2])
         finally:

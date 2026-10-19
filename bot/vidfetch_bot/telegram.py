@@ -91,6 +91,7 @@ class Telegram:
         payload = {
             "chat_id": str(chat_id),
             "caption": caption,
+            "parse_mode": "HTML",
             "supports_streaming": "true",
             "width": str(width),
             "height": str(height),
@@ -116,7 +117,7 @@ class Telegram:
                 video.seek(0)
                 await self.call(
                     "sendDocument",
-                    {"chat_id": str(chat_id), "caption": caption},
+                    {"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"},
                     files={"document": ("VidFetch.mp4", video, "video/mp4")},
                 )
 
@@ -132,6 +133,7 @@ class Telegram:
         payload = {
             "chat_id": str(chat_id),
             "caption": caption,
+            "parse_mode": "HTML",
             "title": title,
             "duration": str(duration),
         }
