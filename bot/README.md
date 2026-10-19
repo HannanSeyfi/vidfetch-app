@@ -8,6 +8,8 @@ The notebook installs FFmpeg/ffprobe if necessary, current nightly yt-dlp with i
 
 ## Using the bot
 
+The ready-to-upload [bot profile picture](assets/vidfetch-bot-avatar.png) matches VidFetch's blue video icon and coral download arrow, with a dark background and room for Telegram's circular crop. Its [generation prompt](assets/avatar-prompt.md) is included.
+
 1. Send a single public video link in a private chat with the bot.
 2. Choose a resolution, for example `720p · ~38.2 MB`. Sizes include the selected audio stream when known. If the site supplies neither size nor bitrate, the button says `size unknown`.
 3. A `compress` marker means the estimated download is above the upload budget. Download size and delivered size can differ.
