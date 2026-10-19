@@ -81,6 +81,42 @@ class RealMediaTests(unittest.IsolatedAsyncioTestCase):
             ],
             check=True,
         )
+        cls.audio = cls.root / "track.m4a"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(cls.source),
+                "-vn",
+                "-c:a",
+                "copy",
+                str(cls.audio),
+            ],
+            check=True,
+        )
+        cls.opus = cls.root / "track.opus"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(cls.source),
+                "-vn",
+                "-c:a",
+                "libopus",
+                "-b:a",
+                "96k",
+                str(cls.opus),
+            ],
+            check=True,
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -131,6 +167,100 @@ class RealMediaTests(unittest.IsolatedAsyncioTestCase):
             self.assertAlmostEqual(prepared.probe.duration, 6, delta=0.2)
             self.assertLessEqual(prepared.path.stat().st_size, 400_000)
 
+    async def test_extract_audio_from_video_without_reencoding_aac_or_retaining_video(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            shutil.copy2(self.source, source)
+            prepared = await media.prepare_audio(source, AsyncMock())
+            self.assertFalse(prepared.compressed)
+            self.assertEqual(prepared.path.suffix, ".m4a")
+            final = await media.probe_audio(prepared.path, audio_only=True)
+            self.assertEqual(final.audio_codec, "aac")
+            self.assertAlmostEqual(final.duration, 6, delta=0.2)
+            self.assertLess(prepared.path.stat().st_size, source.stat().st_size)
+
+            # Compare the actual AAC packets, proving that the successful copy path
+            # preserves the original audio rather than silently recompressing it.
+            def packets(path):
+                return subprocess.check_output(
+                    [
+                        "ffmpeg",
+                        "-v",
+                        "error",
+                        "-i",
+                        str(path),
+                        "-map",
+                        "0:a:0",
+                        "-c:a",
+                        "copy",
+                        "-f",
+                        "adts",
+                        "-",
+                    ]
+                )
+
+            self.assertEqual(packets(source), packets(prepared.path))
+
+    async def test_audio_compression_fits_budget_and_keeps_full_track(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.m4a"
+            shutil.copy2(self.audio, source)
+            self.assertGreater(source.stat().st_size, 40_000)
+            prepared = await media.prepare_audio(source, AsyncMock(), limit=40_000, target=32_000)
+            self.assertTrue(prepared.compressed)
+            self.assertLessEqual(prepared.path.stat().st_size, 40_000)
+            final = await media.probe_audio(prepared.path, audio_only=True)
+            self.assertAlmostEqual(final.duration, 6, delta=0.2)
+            await media.command(
+                ["ffmpeg", "-v", "error", "-i", str(prepared.path), "-f", "null", "-"],
+                timeout=30,
+                folder=source.parent,
+            )
+
+    async def test_opus_audio_is_converted_to_aac_m4a(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.opus"
+            shutil.copy2(self.opus, source)
+            prepared = await media.prepare_audio(source, AsyncMock())
+            self.assertEqual(prepared.path.suffix, ".m4a")
+            final = await media.probe_audio(prepared.path, audio_only=True)
+            self.assertEqual(final.audio_codec, "aac")
+            self.assertAlmostEqual(final.duration, 6, delta=0.2)
+
+    async def test_requesting_audio_from_silent_clip_returns_a_clear_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            shutil.copy2(self.silent, source)
+            with self.assertRaisesRegex(media.MediaError, "valid audio track"):
+                await media.prepare_audio(source, AsyncMock())
+
+    async def test_real_audio_only_link_analysis_download_and_preparation(self):
+        handler = functools.partial(QuietHandler, directory=str(self.root))
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = f"http://127.0.0.1:{server.server_port}/track.m4a"
+        try:
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                patch.object(media, "validate_url", AsyncMock(side_effect=lambda value: value)),
+            ):
+                folder = Path(directory)
+                analysis = await media.analyze(url, folder)
+                # Generic extractor metadata may omit codec information. Prefer
+                # the explicit audio choice even when it also offers a video guess.
+                quality = next(q for q in analysis.qualities if q.audio_only)
+                downloaded = await media.download(url, quality, folder)
+                prepared = await media.prepare_audio(downloaded, AsyncMock())
+                final = await media.probe_audio(prepared.path, audio_only=True)
+                self.assertEqual(final.audio_codec, "aac")
+                self.assertAlmostEqual(final.duration, 6, delta=0.2)
+                self.assertFalse(prepared.compressed)
+        finally:
+            await asyncio.to_thread(server.shutdown)
+            server.server_close()
+            thread.join(timeout=5)
+
     async def test_actual_ytdlp_analysis_download_and_final_video_validation(self):
         handler = functools.partial(QuietHandler, directory=str(self.root))
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -144,7 +274,7 @@ class RealMediaTests(unittest.IsolatedAsyncioTestCase):
             ):
                 folder = Path(directory)
                 analysis = await media.analyze(url, folder)
-                self.assertEqual(len(analysis.qualities), 1)
+                self.assertEqual(len([q for q in analysis.qualities if not q.audio_only]), 1)
                 downloaded = await media.download(url, analysis.qualities[0], folder)
                 self.assertEqual(downloaded.read_bytes(), self.source.read_bytes())
                 prepared = await media.prepare_video(downloaded, AsyncMock())

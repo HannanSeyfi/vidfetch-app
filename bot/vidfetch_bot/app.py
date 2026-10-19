@@ -18,10 +18,11 @@ from . import media
 from .telegram import Telegram, TelegramError
 
 HELP = (
-    "Send a video link and choose a quality. Each button shows the estimated download size, "
-    "including audio where available. Oversized videos are automatically compressed for Telegram.\n\n"
+    "Send a link and choose a video quality or Audio only. Each button shows an estimated file size; "
+    "video sizes include audio where available. Audio only sends an M4A file in Telegram's audio player. "
+    "Oversized videos and audio are automatically compressed for Telegram.\n\n"
     "Sizes are estimates; compression may reduce resolution and detail. "
-    "Only one video is processed at a time in this Colab session.\n\n"
+    "Only one request is processed at a time in this Colab session.\n\n"
     "/cancel — cancel your current request\n/status — show your request status\n"
     "/id — show your Telegram user ID\n/help — show these instructions"
 )
@@ -186,8 +187,9 @@ class Bot:
             await self.api.message(
                 owner[0],
                 f"{analysis.title}\n\nChoose a quality. Sizes include audio "
-                "when known. “compress” means the estimate exceeds the upload budget; "
-                "the delivered video may have lower quality.\n\nMenu expires in 30 minutes.",
+                "when known. Audio only sends an M4A audio track. "
+                "“compress” means the estimate exceeds the upload budget; "
+                "the delivered file may have lower quality.\n\nMenu expires in 30 minutes.",
                 keyboard=keyboard,
             )
         except BaseException:
@@ -211,10 +213,33 @@ class Bot:
         quality = selection.analysis.qualities[index]
 
         async def deliver(status: media.Status, folder: Path) -> None:
-            await status(
-                f"Downloading {quality.height or 'best available'}{'p' if quality.height else ''}…"
+            choice = (
+                "audio"
+                if quality.audio_only
+                else (f"{quality.height}p" if quality.height else "best available video")
             )
+            await status(f"Downloading {choice}…")
             source = await media.download(selection.url, quality, folder)
+            if quality.audio_only:
+                audio = await media.prepare_audio(source, status)
+                size = audio.path.stat().st_size
+                if size > media.UPLOAD_LIMIT:
+                    raise media.MediaError(
+                        "The prepared audio exceeds the upload budget. Try a shorter clip."
+                    )
+                await status(f"Uploading {media.format_size(size)} of audio to Telegram…")
+                details = f"Audio only · {media.format_size(size)}"
+                if audio.compressed:
+                    details += " · compressed for Telegram"
+                await self.api.upload_audio(
+                    owner[0],
+                    audio.path,
+                    f"{selection.analysis.title}\n{details}",
+                    title=selection.analysis.title,
+                    duration=math.ceil(audio.probe.duration),
+                )
+                await status("Audio sent. Send another link whenever you're ready.")
+                return
             prepared = await media.prepare_video(source, status)
             size = prepared.path.stat().st_size
             if size > media.UPLOAD_LIMIT:
@@ -269,7 +294,7 @@ async def run_bot(token: str, *, allowed_users: set[int] | None = None) -> None:
             "setMyCommands",
             {
                 "commands": [
-                    {"command": "start", "description": "Send a link and choose a video quality"},
+                    {"command": "start", "description": "Send a link and choose video or audio"},
                     {"command": "cancel", "description": "Cancel your current request"},
                     {"command": "status", "description": "Show request status"},
                     {"command": "id", "description": "Show your Telegram user ID"},

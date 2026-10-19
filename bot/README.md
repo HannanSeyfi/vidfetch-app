@@ -11,9 +11,13 @@ The notebook installs FFmpeg/ffprobe if necessary, current nightly yt-dlp with i
 The ready-to-upload [bot profile picture](assets/vidfetch-bot-avatar.png) matches VidFetch's blue video icon and coral download arrow, with a dark background and room for Telegram's circular crop. Its [generation prompt](assets/avatar-prompt.md) is included.
 
 1. Send a single public video link in a private chat with the bot.
-2. Choose a resolution, for example `720p · ~38.2 MB`. Sizes include the selected audio stream when known. If the site supplies neither size nor bitrate, the button says `size unknown`.
-3. A `compress` marker means the estimated download is above the upload budget. Download size and delivered size can differ.
+2. Choose a resolution, for example `720p · ~38.2 MB`, or **Audio only**, for example `Audio only · ~5.2 MB`. Video sizes include the selected audio stream when known. Audio sizes estimate the delivered audio track, excluding video bytes. If a reliable estimate is unavailable, the button says `size unknown`.
+3. A `compress` marker means the estimate is above the upload budget. Download size and delivered size can differ.
 4. The bot downloads the selected streams, merges them, verifies a real video stream with ffprobe, and prepares a playable MP4. Oversized or incompatible videos are encoded as H.264/AAC, with two-pass encoding and a byte budget. It verifies the actual final size before uploading. The caption reports the delivered resolution and whether the video was compressed.
+
+**Audio only** prefers a separate audio stream. For sites that provide only combined files, the bot downloads a lower-preference combined format and extracts its audio. It sends an **M4A audio file** through Telegram's music player, with the original title and duration. AAC tracks that fit are copied without re-encoding; other codecs are converted to AAC at up to 192 kb/s. Large tracks have their bitrate reduced to fit the upload budget, with the final size and full duration checked before sending. No video stream is included in the delivered audio. Clips known to be silent do not get an audio button; missing audio discovered after download produces a clear error.
+
+To get this option in an existing Colab session, **stop the old bot cell, reopen the latest notebook from GitHub, and run both cells again**. Saved Colab copies and old quality menus contain the previous version; restarting only the old start cell will not update them.
 
 Commands: `/start`, `/help`, `/status`, `/cancel`, and `/id`. Cancelling stops active download/encoding subprocesses and cleans temporary files. Menus belong to the user who requested them, expire after 30 minutes, and are invalidated after use or when that user requests another link.
 
@@ -21,9 +25,9 @@ The optional `allowed_user_ids` field in the second notebook cell accepts comma-
 
 ## Limits and behavior
 
-- The standard [Telegram Bot API](https://core.telegram.org/bots/api#sendvideo) allows new video uploads up to 50 MB. This bot uses a conservative **49,000,000-byte** ceiling and **46,000,000-byte** encoding target. Sending as a document does not increase the limit. No local Bot API server is required.
+- The standard Telegram Bot API allows new [video](https://core.telegram.org/bots/api#sendvideo) and [audio](https://core.telegram.org/bots/api#sendaudio) uploads up to 50 MB. This bot uses a conservative **49,000,000-byte** ceiling and **46,000,000-byte** encoding target. Sending as a document does not increase the limit. No local Bot API server is required.
 - Compression can lower resolution, frame rate, audio quality, and detail. It preserves the full clip and original audio when present. If a complete valid video cannot fit after bounded encoding attempts, the bot explains the failure rather than uploading an oversized or truncated file.
-- One request runs at a time, with at most five active/queued requests and one per user. Downloads have a 2 GB budget; videos over four hours, playlists, and ongoing live streams are rejected. Extraction, downloading, and encoding have time limits. Temporary media is deleted after success, error, or cancellation.
+- One request runs at a time, with at most five active/queued requests and one per user. Downloads have a 2 GB budget; media over four hours, playlists, and ongoing live streams are rejected. Extraction, downloading, and encoding have time limits. Temporary media is deleted after success, error, or cancellation.
 - Site support comes from yt-dlp. Network location, IP reputation, authentication requirements, DRM, and site changes can cause different results from the Android app. The Android-specific Python compatibility runtime is not used here. No cookies are imported, and raw extractor logs are not sent to Telegram.
 - Initial URLs must use HTTP(S), resolve to public IPs, and use standard web ports. This is a small personal bot, not a hardened public download service; extractor redirects and nested media requests are handled by yt-dlp.
 - Colab is a temporary interactive environment. The bot stops when the runtime stops, and old quality menus and unfinished jobs are not persisted. Google [restricts media serving unrelated to interactive compute](https://research.google.com/colaboratory/faq.html#limitations-and-restrictions); a notebook does not create an exception to those policies. No keepalive or limit-bypass mechanism is included.

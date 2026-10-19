@@ -21,6 +21,7 @@ UPLOAD_LIMIT = 49_000_000  # Below the cloud Bot API's 50 MB limit, in bytes.
 TARGET_BYTES = 46_000_000
 DOWNLOAD_LIMIT = 2_000_000_000
 MAX_DURATION = 4 * 60 * 60
+AUDIO_BITRATE = 192_000
 Status = Callable[[str], Awaitable[None]]
 
 
@@ -33,10 +34,15 @@ class Quality:
     height: int | None
     selector: str
     size: int | None
+    audio_only: bool = False
 
     @property
     def label(self) -> str:
-        resolution = f"{self.height}p" if self.height else "Best available"
+        resolution = (
+            "Audio only"
+            if self.audio_only
+            else (f"{self.height}p" if self.height else "Best available")
+        )
         size = f"~{format_size(self.size)}" if self.size else "size unknown"
         compress = " · compress" if self.size and self.size > UPLOAD_LIMIT else ""
         return f"{resolution} · {size}{compress}"
@@ -68,6 +74,21 @@ class PreparedVideo:
     compressed: bool
 
 
+@dataclass(frozen=True)
+class AudioProbe:
+    duration: float
+    audio_codec: str
+    bitrate: int
+    audio_index: int
+
+
+@dataclass(frozen=True)
+class PreparedAudio:
+    path: Path
+    probe: AudioProbe
+    compressed: bool
+
+
 def number(value: object) -> float:
     try:
         result = float(value)
@@ -89,6 +110,29 @@ def estimate_size(fmt: dict, duration: float) -> int | None:
     if not bitrate:
         bitrate = number(fmt.get("vbr")) + number(fmt.get("abr"))
     return math.ceil(duration * bitrate * 1000 / 8) if duration and bitrate else None
+
+
+def is_aac(codec: str | None) -> bool:
+    return codec == "aac" or bool(codec and codec.startswith("mp4a"))
+
+
+def audio_bitrate(source_bitrate: float) -> int:
+    return min(AUDIO_BITRATE, max(32_000, int(source_bitrate))) if source_bitrate else AUDIO_BITRATE
+
+
+def estimate_audio_size(fmt: dict, duration: float) -> int | None:
+    """Estimate the delivered audio, never the full video used as a fallback source."""
+    separate = fmt.get("vcodec") == "none"
+    if is_aac(fmt.get("acodec")) and separate:
+        return estimate_size(fmt, duration)
+    bitrate = number(fmt.get("abr")) or (number(fmt.get("tbr")) if separate else 0)
+    if not duration:
+        return None
+    if is_aac(fmt.get("acodec")):
+        return math.ceil(duration * bitrate * 1000 / 8 * 1.02) if bitrate else None
+    # Non-AAC sources use one known conversion bitrate, so the menu does not
+    # depend on source bitrate fields that ffprobe may omit (notably for Opus).
+    return math.ceil(duration * AUDIO_BITRATE / 8 * 1.02)
 
 
 def qualities_from_info(info: dict) -> tuple[Quality, ...]:
@@ -133,8 +177,25 @@ def qualities_from_info(info: dict) -> tuple[Quality, ...]:
             if not all(re.fullmatch(r"[\w.-]+", value, flags=re.ASCII) for value in identifiers):
                 continue
             result.append(Quality(actual_height, "+".join(identifiers), size))
+        # Download a standalone audio stream if available. Otherwise take the
+        # smallest-preference combined format, avoiding a full-resolution video download.
+        audio_formats = list(ydl.build_format_selector("ba")(context))
+        audio = (
+            audio_formats[-1]
+            if audio_formats
+            else next(
+                (f for f in formats if f.get("acodec") != "none" and f.get("vcodec") != "none"),
+                None,
+            )
+        )
+        if audio and audio.get("acodec") != "none":
+            identifier = str(audio.get("format_id", ""))
+            if re.fullmatch(r"[\w.-]+", identifier, flags=re.ASCII):
+                result.append(
+                    Quality(None, identifier, estimate_audio_size(audio, duration), audio_only=True)
+                )
     if not result:
-        raise MediaError("No downloadable video qualities were found for this link.")
+        raise MediaError("No downloadable video or audio was found for this link.")
     return tuple(result)
 
 
@@ -331,7 +392,109 @@ async def download(url: str, quality: Quality, folder: Path) -> Path:
             raise MediaError("This download exceeds the session's 2 GB storage budget.")
         return path
     except (ValueError, IndexError, TypeError):
-        raise MediaError("The extractor did not produce a completed video file.") from None
+        kind = "audio" if quality.audio_only else "video"
+        raise MediaError(f"The extractor did not produce a completed {kind} file.") from None
+
+
+async def probe_audio(path: Path, *, audio_only: bool = False) -> AudioProbe:
+    raw = await command(
+        ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
+        timeout=30,
+        folder=path.parent,
+    )
+    try:
+        info = json.loads(raw)
+        streams = info.get("streams", [])
+        audio = next(s for s in streams if s.get("codec_type") == "audio")
+        if audio_only and any(s.get("codec_type") == "video" for s in streams):
+            raise ValueError
+        duration = number(audio.get("duration")) or number(info.get("format", {}).get("duration"))
+        if not duration or not audio.get("codec_name"):
+            raise ValueError
+        if duration > MAX_DURATION:
+            raise MediaError("Choose audio shorter than four hours for this Colab session.")
+        return AudioProbe(
+            duration, audio["codec_name"], int(number(audio.get("bit_rate"))), int(audio["index"])
+        )
+    except (ValueError, KeyError, StopIteration, TypeError):
+        raise MediaError(
+            "This file does not contain a valid audio track. Try another link."
+        ) from None
+
+
+def check_audio_duration(original: AudioProbe, final: AudioProbe) -> None:
+    if abs(final.duration - original.duration) > max(2, original.duration * 0.01):
+        raise MediaError("The prepared audio was incomplete. Please try a shorter clip.")
+
+
+async def prepare_audio(
+    source: Path, status: Status, *, limit: int = UPLOAD_LIMIT, target: int = TARGET_BYTES
+) -> PreparedAudio:
+    info = await probe_audio(source)
+    output = source.parent / "telegram.m4a"
+    base = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-i",
+        str(source),
+        "-map",
+        f"0:{info.audio_index}",
+        "-vn",
+        "-sn",
+        "-dn",
+    ]
+    await status("Extracting audio for Telegram…")
+    compressed = False
+    if info.audio_codec == "aac":
+        # Copying only the audio also avoids needless compression when the source
+        # video is large but its AAC track already fits Telegram's upload budget.
+        await command(
+            base + ["-c:a", "copy", "-movflags", "+faststart", str(output)],
+            timeout=300,
+            folder=source.parent,
+        )
+        final = await probe_audio(output, audio_only=True)
+        check_audio_duration(info, final)
+        if output.stat().st_size <= limit:
+            return PreparedAudio(output, final, False)
+        compressed = True
+        await status("Compressing audio to fit Telegram's upload limit…")
+    preferred_rate = audio_bitrate(info.bitrate) if info.audio_codec == "aac" else AUDIO_BITRATE
+    for attempt in range(3):
+        budget_rate = int(min(target, limit * 0.94) * 8 / info.duration * 0.95 * 0.8**attempt)
+        rate = min(preferred_rate, budget_rate)
+        if rate < 16_000:
+            raise MediaError(
+                "This audio is too long to fit a single Telegram upload. Try a shorter clip."
+            )
+        if rate < preferred_rate or attempt:
+            compressed = True
+            await status("Compressing audio to fit Telegram's upload limit…")
+        await command(
+            base
+            + [
+                "-c:a",
+                "aac",
+                "-b:a",
+                str(rate),
+                "-ac",
+                "1" if rate < 64_000 else "2",
+                "-movflags",
+                "+faststart",
+                str(output),
+            ],
+            timeout=1800,
+            folder=source.parent,
+        )
+        final = await probe_audio(output, audio_only=True)
+        check_audio_duration(info, final)
+        if output.stat().st_size <= limit:
+            return PreparedAudio(output, final, compressed)
+    raise MediaError("This audio could not fit Telegram's limit. Try a shorter clip.")
 
 
 async def probe(path: Path) -> Probe:

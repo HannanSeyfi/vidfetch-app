@@ -38,9 +38,15 @@ class QualityTests(unittest.TestCase):
         qualities = media.qualities_from_info(info)
         self.assertEqual(
             [(q.height, q.selector, q.size) for q in qualities],
-            [(720, "v720+audio", 42_000_000), (360, "v360+audio", 12_000_000)],
+            [
+                (720, "v720+audio", 42_000_000),
+                (360, "v360+audio", 12_000_000),
+                (None, "audio", 2_000_000),
+            ],
         )
         self.assertEqual(qualities[0].label, "720p · ~42.0 MB")
+        self.assertTrue(qualities[-1].audio_only)
+        self.assertEqual(qualities[-1].label, "Audio only · ~2.0 MB")
 
     def test_missing_audio_size_does_not_understate_total(self):
         qualities = media.qualities_from_info(
@@ -72,7 +78,7 @@ class QualityTests(unittest.TestCase):
             ]
         }
         qualities = media.qualities_from_info(info)
-        self.assertEqual(len(qualities), 2)
+        self.assertEqual(len([q for q in qualities if not q.audio_only]), 2)
         self.assertEqual(qualities[0].selector, "high")
         self.assertIn("compress", qualities[0].label)
 
@@ -85,13 +91,46 @@ class QualityTests(unittest.TestCase):
             media.qualities_from_info({"formats": [fmt("direct", audio="aac")]})[0].height, None
         )
 
-    def test_audio_only_and_drm_are_rejected(self):
+    def test_audio_only_link_has_only_an_audio_option(self):
+        qualities = media.qualities_from_info({"formats": [fmt("a", video="none", audio="aac")]})
+        self.assertEqual(len(qualities), 1)
+        self.assertTrue(qualities[0].audio_only)
+        self.assertEqual(qualities[0].selector, "a")
+
+    def test_drm_video_and_audio_are_rejected(self):
         for formats in (
-            [fmt("a", video="none", audio="aac")],
+            [dict(fmt("a", video="none", audio="aac"), has_drm=True)],
             [dict(fmt("v", height=720), has_drm=True)],
         ):
             with self.subTest(formats=formats), self.assertRaises(media.MediaError):
                 media.qualities_from_info({"formats": formats})
+
+    def test_combined_source_audio_estimate_excludes_video_bytes(self):
+        info = {
+            "duration": 100,
+            "formats": [
+                dict(fmt("low", height=360, audio="aac", size=10_000_000), abr=96),
+                dict(fmt("high", height=720, audio="aac", size=30_000_000), abr=128),
+            ],
+        }
+        audio = media.qualities_from_info(info)[-1]
+        self.assertTrue(audio.audio_only)
+        self.assertEqual(audio.selector, "low")
+        self.assertEqual(audio.size, 1_224_000)
+
+    def test_known_silent_video_has_no_audio_option(self):
+        qualities = media.qualities_from_info({"formats": [fmt("silent", height=720)]})
+        self.assertFalse(any(q.audio_only for q in qualities))
+
+    def test_transcoded_audio_estimates_follow_output_bitrate_and_unknown_duration(self):
+        opus = fmt("a", video="none", audio="opus", size=10_000_000, bitrate=128)
+        self.assertEqual(media.estimate_audio_size(opus, 100), 2_448_000)
+        self.assertIsNone(media.estimate_audio_size(opus, 0))
+        self.assertIsNone(media.estimate_audio_size(fmt("v", height=720, audio="aac"), 100))
+
+    def test_large_audio_button_shows_compression_marker(self):
+        audio = media.Quality(None, "audio", 60_000_000, audio_only=True)
+        self.assertEqual(audio.label, "Audio only · ~60.0 MB · compress")
 
     def test_direct_mp4_preference_on_the_same_site_as_android(self):
         info = {

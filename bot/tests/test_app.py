@@ -15,6 +15,7 @@ class FakeTelegram:
         self.edits = []
         self.answers = []
         self.uploads = []
+        self.audio_uploads = []
 
     async def message(self, chat_id, text, *, keyboard=None):
         message = {
@@ -34,6 +35,9 @@ class FakeTelegram:
 
     async def upload(self, chat_id, path, caption, **kwargs):
         self.uploads.append((chat_id, path.read_bytes(), caption, kwargs))
+
+    async def upload_audio(self, chat_id, path, caption, **kwargs):
+        self.audio_uploads.append((chat_id, path.read_bytes(), caption, kwargs))
 
 
 def message(text, user=1, chat=None):
@@ -128,6 +132,72 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         group["message"]["chat"]["type"] = "group"
         await self.bot.handle(group)
         self.assertFalse(self.bot.jobs)
+
+    async def test_audio_menu_uses_audio_pipeline_and_telegram_audio_player(self):
+        analysis = media.Analysis(
+            "Example audio",
+            (
+                media.Quality(720, "v+a", 60_000_000),
+                media.Quality(None, "a", 6_000_000, audio_only=True),
+            ),
+        )
+
+        async def downloaded(url, quality, folder):
+            self.assertTrue(quality.audio_only)
+            source = folder / "source.m4a"
+            source.write_bytes(b"source-audio")
+            return source
+
+        async def prepared(source, status):
+            output = source.parent / "telegram.m4a"
+            output.write_bytes(b"prepared-audio")
+            return media.PreparedAudio(output, media.AudioProbe(12.3, "aac", 128_000, 0), True)
+
+        with (
+            patch.object(media, "analyze", AsyncMock(return_value=analysis)),
+            patch.object(media, "download", side_effect=downloaded),
+            patch.object(media, "prepare_audio", side_effect=prepared),
+            patch.object(media, "prepare_video", AsyncMock()) as video,
+        ):
+            await self.bot.handle(message("https://example.com/video"))
+            await finish(self.bot)
+            buttons = self.api.messages[-1]["keyboard"]
+            self.assertEqual(len(buttons), 2)
+            self.assertEqual(buttons[-1][0]["text"], "Audio only · ~6.0 MB")
+            await self.bot.handle(callback(buttons[-1][0]["callback_data"]))
+            await finish(self.bot)
+            video.assert_not_awaited()
+        self.assertFalse(self.api.uploads)
+        self.assertEqual(self.api.audio_uploads[0][1], b"prepared-audio")
+        self.assertIn("compressed", self.api.audio_uploads[0][2])
+        self.assertEqual(self.api.audio_uploads[0][3], {"title": "Example audio", "duration": 13})
+        self.assertFalse(self.bot.selections)
+
+    async def test_oversized_audio_is_not_uploaded(self):
+        analysis = media.Analysis("Example", (media.Quality(None, "a", None, audio_only=True),))
+        self.bot.selections["key"] = Selection(
+            (1, 1), "https://example.com", analysis, time.monotonic() + 10
+        )
+
+        async def downloaded(url, quality, folder):
+            source = folder / "source.m4a"
+            source.write_bytes(b"source-audio")
+            return source
+
+        async def prepared(source, status):
+            output = source.parent / "telegram.m4a"
+            with output.open("wb") as file:
+                file.truncate(media.UPLOAD_LIMIT + 1)
+            return media.PreparedAudio(output, media.AudioProbe(10, "aac", 128_000, 0), True)
+
+        with (
+            patch.object(media, "download", side_effect=downloaded),
+            patch.object(media, "prepare_audio", side_effect=prepared),
+        ):
+            await self.bot.handle(callback("q:key:0"))
+            await finish(self.bot)
+        self.assertFalse(self.api.audio_uploads)
+        self.assertIn("exceeds", self.api.edits[-1])
 
     async def test_notebook_entrypoint_initializes_polls_and_shuts_down(self):
         async def updates():

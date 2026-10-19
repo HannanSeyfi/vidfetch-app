@@ -11,6 +11,32 @@ from vidfetch_bot.telegram import Telegram, TelegramError
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_m4a_upload_uses_send_audio_with_music_player_metadata(self):
+        calls = []
+
+        def transport(request):
+            calls.append((request.url.path.split("/")[-1], request.read()))
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 7}})
+
+        api = Telegram("unused-test-credential", transport=httpx.MockTransport(transport))
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "audio.m4a"
+                path.write_bytes(b"actual-audio-payload")
+                await api.upload_audio(12, path, "Example", title="Track title", duration=10)
+            self.assertEqual(calls[0][0], "sendAudio")
+            for expected in (
+                b"actual-audio-payload",
+                b'name="audio"',
+                b"audio/mp4",
+                b"VidFetch.m4a",
+                b'name="duration"',
+                b"Track title",
+            ):
+                self.assertIn(expected, calls[0][1])
+        finally:
+            await api.close()
+
     async def test_keyboard_and_multipart_video_payloads(self):
         calls = []
 

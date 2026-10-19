@@ -102,10 +102,13 @@ def notebook() -> dict:
         4. Open the bot link printed below, send `/start`, then a video URL.
         5. Choose a quality: buttons include estimated video + audio size. Large files are
            automatically compressed below the Telegram upload limit.
+           Choose **Audio only** to receive just the audio as an M4A file in Telegram's audio player.
 
         Keep the second cell running. Its stop button shuts the bot down; rerun it to restart.
         Colab sessions are temporary and subject to [Colab's limits and policies](https://research.google.com/colaboratory/faq.html).
         Interrupted downloads and old quality menus do not survive a runtime restart.
+        To update an older copy, stop its bot cell, reopen the latest GitHub notebook,
+        and run both cells again. Rerunning only the start cell does not update the embedded code.
 
         Optional: restrict access with Telegram user IDs in cell 2 (use `/id` to find yours).
         Leave the field blank to accept private messages from anyone who finds your bot.

@@ -126,6 +126,20 @@ class Telegram:
             {"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"]},
         )
 
+    async def upload_audio(
+        self, chat_id: int, path: Path, caption: str, *, title: str, duration: int
+    ) -> None:
+        payload = {
+            "chat_id": str(chat_id),
+            "caption": caption,
+            "title": title,
+            "duration": str(duration),
+        }
+        with path.open("rb") as audio:
+            await self.call(
+                "sendAudio", payload, files={"audio": ("VidFetch.m4a", audio, "audio/mp4")}
+            )
+
     async def poll(self):
         offset = 0
         backoff = 1
