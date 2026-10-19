@@ -1,0 +1,10 @@
+__pycache__/
+.venv/
+.ruff_cache/
+.ipynb_checkpoints/
+downloads/
+*.mp4
+*.webm
+*.mkv
+*.part
+.env

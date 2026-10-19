@@ -1,6 +1,6 @@
 # VidFetch
 
-VidFetch is a privacy-minded, local-first video downloader for content a user is permitted to download. It uses site support provided by yt-dlp and processes media on the user's device; URLs are not sent to a VidFetch service.
+VidFetch is a privacy-minded, local-first video downloader for content a user is permitted to download. The native Android app uses site support provided by yt-dlp and processes media on the user's device; URLs are not sent to a VidFetch service.
 
 ## Download for Android
 
@@ -16,8 +16,12 @@ This APK is for most current Android phones (`arm64-v8a`). GitHub publishes it a
 | iOS | Planned |
 | Windows | Planned |
 
+## Telegram companion
+
+The separate [Telegram bot](bot/README.md) runs from a self-contained Colab notebook. Enter a bot token, send a video link, choose a quality with an estimated file size, and receive the video in Telegram. Oversized videos are automatically compressed to fit the upload limit. Colab sessions are temporary; see the bot documentation for setup and limits. The Android app continues to process downloads on-device independently.
+
 ## Repository layout
 
-`android/` contains the native Android Studio project. Future native implementations will live in their own platform directories.
+`android/` contains the native Android Studio project. `bot/` contains the independent Python Telegram companion and Colab notebook. Future native implementations will live in their own platform directories.
 
 See [the Android README](android/README.md) for setup, architecture, limitations, and build instructions.
