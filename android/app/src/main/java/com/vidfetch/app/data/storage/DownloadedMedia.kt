@@ -14,7 +14,8 @@ import android.provider.DocumentsContract
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import com.vidfetch.app.domain.formatBytes
-import com.vidfetch.app.domain.videoFileExtensions
+import com.vidfetch.app.domain.audioFileExtensions
+import com.vidfetch.app.domain.mediaFileExtensions
 import java.io.File
 
 data class DownloadedMedia(
@@ -28,9 +29,10 @@ data class DownloadedMedia(
 ) {
     val id: String get() = uri.toString()
     val size: String get() = formatBytes(sizeBytes)
+    val isAudio: Boolean get() = title.substringAfterLast('.', "").lowercase() in audioFileExtensions
 }
 
-/** Publishes completed videos while keeping yt-dlp's working files private to the app. */
+/** Publishes completed media while keeping yt-dlp's working files private to the app. */
 class DownloadedMediaRepository(private val context: Context) {
     private val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "VidFetch")
     private val resolver = context.contentResolver
@@ -62,7 +64,7 @@ class DownloadedMediaRepository(private val context: Context) {
                 val name = cursor.getString(1) ?: continue
                 val mime = cursor.getString(2).orEmpty()
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR ||
-                    (!mime.startsWith("video/") && name.substringAfterLast('.', "").lowercase() !in videoFileExtensions)) continue
+                    (!mime.startsWith("video/") && !mime.startsWith("audio/") && name.substringAfterLast('.', "").lowercase() !in mediaFileExtensions)) continue
                 result += DownloadedMedia(DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)), name,
                     cursor.getLong(3), cursor.getLong(4), document = true)
             }
@@ -79,7 +81,7 @@ class DownloadedMediaRepository(private val context: Context) {
         // Files made by older VidFetch versions may not have a MediaStore owner or row.
         val indexedNames = indexed.mapTo(HashSet()) { it.title }
         val legacy = runCatching { directory.listFiles().orEmpty() }.getOrDefault(emptyArray())
-            .filter { it.isFile && it.canRead() && it.extension.lowercase() in videoFileExtensions && it.name !in indexedNames }
+            .filter { it.isFile && it.canRead() && it.extension.lowercase() in mediaFileExtensions && it.name !in indexedNames }
             .map(::legacyItem)
         return (indexed.filterNot { it.pending }.filter { item ->
             runCatching { resolver.openFileDescriptor(item.uri, "r")?.use { true } ?: false }.getOrDefault(false)
@@ -114,7 +116,7 @@ class DownloadedMediaRepository(private val context: Context) {
             val pending = cursor.getColumnIndexOrThrow(MediaStore.Downloads.IS_PENDING)
             while (cursor.moveToNext()) {
                 val title = cursor.getString(name) ?: continue
-                if (title.substringAfterLast('.', "").lowercase() !in videoFileExtensions) continue
+                if (title.substringAfterLast('.', "").lowercase() !in mediaFileExtensions) continue
                 result += DownloadedMedia(
                     uri = ContentUris.withAppendedId(collection, cursor.getLong(id)),
                     title = title,
@@ -211,7 +213,7 @@ class DownloadedMediaRepository(private val context: Context) {
             .putExtra(Intent.EXTRA_STREAM, item.uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         send.clipData = ClipData.newUri(resolver, item.title, item.uri)
-        context.startActivity(Intent.createChooser(send, "Share video").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(Intent.createChooser(send, "Share ${if (item.isAudio) "audio" else "video"}").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     private fun mimeType(extension: String) = when (extension.lowercase()) {
@@ -219,6 +221,13 @@ class DownloadedMediaRepository(private val context: Context) {
         "webm" -> "video/webm"
         "mkv" -> "video/x-matroska"
         "mov" -> "video/quicktime"
+        "m4a" -> "audio/mp4"
+        "mp3" -> "audio/mpeg"
+        "aac" -> "audio/aac"
+        "flac" -> "audio/flac"
+        "wav" -> "audio/wav"
+        "ogg", "oga" -> "audio/ogg"
+        "opus" -> "audio/opus"
         "avi" -> "video/x-msvideo"
         "ts" -> "video/mp2t"
         else -> "video/*"

@@ -19,6 +19,7 @@ class ExtractorRuntimeTest {
 
     @Test fun youtubeSeparateStreamsPublishOnlyCompletedVideo() { checkYoutubeSeparateStreams() }
     @Test fun downloadsReflectCopiedMovedRestoredAndDeletedFiles() { checkDownloadsFolderContents() }
+    @Test fun sharedLinkAudioSelectionDownloadsThroughService() { checkSharedLinkAudioDownload() }
 
     @Test fun mediaProcessesDoNotInheritPythonLibraries() = runBlocking {
         for (backend in ExtractorBackend.entries) {
@@ -92,7 +93,8 @@ class ExtractorRuntimeTest {
                 assertTrue(output.contains("VIDFETCH_COMPATIBILITY_OK"))
             }
             val info = YtDlpRepositoryImpl(context).parseVideoInfo(File(folder, "compat-info.json").readText())
-            assertEquals(listOf(null, 240), qualities(info.formats).map { it.height })
+            assertEquals(listOf(null, 240), qualities(info.formats).filterNot { it.audioOnly }.map { it.height })
+            assertTrue(qualities(info.formats).any { it.audioOnly })
         } finally { folder.deleteRecursively() }
     }
 
@@ -118,7 +120,7 @@ class ExtractorRuntimeTest {
                 for ((label, url) in listOf("reddit" to "https://www.reddit.com/r/videos/s/synthetic", "redgifs" to "https://www.redgifs.com/watch/syntheticclip")) {
                     assertNull(SiteCookieStore(context).snapshotFor(url))
                     val info = repository.parseVideoInfo(cli(repository.analysisArguments(null, url), warning = true))
-                    assertEquals(listOf(null, 240), qualities(info.formats).map { it.height })
+                    assertEquals(listOf(null, 240), qualities(info.formats).filterNot { it.audioOnly }.map { it.height })
                     val destination = File(folder, "$label.mp4")
                     val output = cli(repository.downloadArguments(null, url, 360, destination.absolutePath))
                     assertTrue(output.contains("VIDFETCH_HEIGHT:240"))
@@ -131,6 +133,14 @@ class ExtractorRuntimeTest {
                         print(subprocess.check_output(['$native/libffprobe.so', '-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', '${destination.absolutePath}'], text=True))
                     """.trimIndent()), backend)
                     assertTrue(probe.contains("video") && probe.contains("audio"))
+                    val audioTemplate = File(folder, "$label-audio.%(ext)s").absolutePath
+                    val audioOutput = cli(repository.downloadArguments(null, url, null, audioTemplate, audioOnly = true))
+                    val audio = repository.completedDownload(audioOutput, audioTemplate, audioOnly = true)
+                    assertEquals("m4a", audio.file.extension)
+                    assertNull(audio.height)
+                    val audioProbe = ExtractorRuntime.media(context, "ffprobe", listOf("-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", audio.file.absolutePath))
+                    assertTrue(audioProbe.contains("audio"))
+                    assertFalse(audioProbe.contains("video"))
                 }
                 val failure = runCatching { cli(repository.analysisArguments(null, "https://www.reddit.com/r/videos/s/synthetic"), warning = true, failure = true) }.exceptionOrNull()
                 assertNotNull(failure)
@@ -164,10 +174,12 @@ class ExtractorRuntimeTest {
                 }
             """.trimIndent())
             val options = qualities(info.formats)
-            assertEquals(listOf(null, 1080, 720, 480, 240), options.map { it.height })
+            assertEquals(listOf(null, 1080, 720, 480, 240), options.filterNot { it.audioOnly }.map { it.height })
+            assertTrue(options.last().audioOnly)
             assertEquals(22L, options.single { it.height == 720 }.estimatedBytes)
             assertTrue(info.formats.first().hasVideo)
             assertNull(info.formats.first().videoCodec)
+            assertTrue(info.formats.first().hasAudio)
         }
     }
 
@@ -216,6 +228,12 @@ class ExtractorRuntimeTest {
                     """.trimIndent()))
                     assertTrue(probe.contains("video"))
                     assertTrue(probe.contains("audio"))
+                    val audio = repository.download(url, null, File(folder, "audio-${path.substringAfterLast('.')}.%(ext)s").absolutePath, audioOnly = true) { }
+                    assertEquals("m4a", audio.file.extension)
+                    assertNull(audio.height)
+                    val audioProbe = ExtractorRuntime.media(context, "ffprobe", listOf("-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", audio.file.absolutePath))
+                    assertTrue(audioProbe.contains("audio"))
+                    assertFalse(audioProbe.contains("video"))
                 }
             }
         } finally { folder.deleteRecursively() }

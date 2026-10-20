@@ -1,6 +1,6 @@
 # VidFetch for Android
 
-Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.6 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
+Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.7 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
 
 ## Multi-site extraction
 
@@ -14,6 +14,8 @@ FFmpeg and ffprobe use their own shared-library search path without Python's pri
 
 Quality choices include formats with a known resolution even when the video codec is unspecified, as with Pornhub's direct MP4 formats. Formats explicitly marked as having no video are excluded; duplicate resolutions are grouped.
 
+**Audio only · M4A** appears alongside video qualities when the link has a format that may contain audio. Formats explicitly marked silent do not enable it; direct MP4 formats with unspecified audio metadata remain eligible. Audio links offer audio without a video choice. The download service prefers the best separate audio stream, falling back to a combined stream, then uses local FFmpeg to extract M4A (AAC). AAC can be copied without re-encoding; other codecs are converted with yt-dlp's highest VBR quality setting. Audio output size is left unknown because conversion can change it. No video resolution or YouTube MP4 remux options apply to audio downloads. Final ffprobe validation requires an audio stream and rejects remaining video before publishing the completed file.
+
 The existing Update extractor button downloads an official nightly, verifies its SHA-256 checksum and version, and installs it atomically. Upgrading the app replaces an older bundled extractor while retaining a newer installed nightly.
 
 Reddit and RedGIFs prefer the Python 3.12/networking payload shipped in 0.2.2, paired with the same updated yt-dlp used by the main runtime and current FFmpeg. This matches 0.2.2 after using Update extractor. It applies to validated Reddit/RedGIFs domains and their media subdomains, in both analysis and downloading. HTTP 403 or anonymous-session rejection retries on the modern runtime; other sites start there. Both attempts use the same optional cookie snapshot; cancellation and unrelated errors are not retried. Downloads on these sites restart partial files to avoid combining streams selected by different attempts. Update extractor now applies to both runtimes. The frozen 2025 extractor added in 0.3.3 is removed, including its private installed copy on upgrade. Startup warnings are separated from the terminal extraction error. See runtime/README.md for provenance.
@@ -26,7 +28,7 @@ Each site has an enable switch and delete control. Cookie files, settings and pe
 
 ## Storage and privacy
 
-yt-dlp writes intermediate files to app-specific storage. Completed videos are published to Downloads/VidFetch through MediaStore on Android 10+; Android 7–9 use the public folder with the legacy storage permission. On Android 10+, tap Allow folder access in Downloads and select Downloads/VidFetch once. The persistent system folder grant lets Refresh list videos directly from that folder, including files moved in by other apps or returned after being moved away. Moved-out and deleted files disappear. The list also refreshes when the app resumes. Without the grant, the app continues to show its accessible downloads. No broad media-library or all-files permission is requested. Local video frames provide thumbnails. No remote processing service, analytics or advertising SDK is used.
+yt-dlp writes intermediate files to app-specific storage. Completed videos and audio are published to Downloads/VidFetch through MediaStore on Android 10+; Android 7–9 use the public folder with the legacy storage permission. On Android 10+, tap Allow folder access in Downloads and select Downloads/VidFetch once. The persistent system folder grant lets Refresh list media directly from that folder, including files moved in by other apps or returned after being moved away. Moved-out and deleted files disappear. The list also refreshes when the app resumes. Without the grant, the app continues to show its accessible downloads. Audio files use audio MIME types for publishing, opening and sharing, and a music icon in the list; both media types support rename and delete. No broad media-library or all-files permission is requested. Local video frames provide video thumbnails. No remote processing service, analytics or advertising SDK is used.
 
 Settings retains the author's GitHub profile photo and Telegram contact card.
 
@@ -56,6 +58,8 @@ Instrumentation tests start both packaged interpreters with the same updated eng
 0.3.5 regression checks use genuine separate H.264/VP9 video and AAC/Opus audio streams with the app's YouTube CLI options, verify requested resolutions and final MP4 audio/video, and reject an audio-only intermediate. Folder tests copy, move out, restore, rename and delete external files; Android 15 exercises the actual system folder picker and persisted grant.
 
 0.3.6 adds checks at Python's actual subprocess execution boundary for inherited and explicit environments, standard subprocess calls and yt-dlp's Popen, under both packaged interpreters. It verifies that media children exclude Python library paths and startup settings while the parent extraction environment and unrelated children remain intact. Direct FFmpeg/ffprobe execution is also exercised.
+
+0.3.7 adds separate-stream audio extraction under both interpreters, combined MP4/HLS/DASH audio extraction, final stream validation, audio folder operations and an end-to-end shared-link quality-selection/service download check. JVM tests distinguish audio selection from best video, hide audio for silent formats and verify audio-only links and cross-site selectors.
 
 ## Limitations
 
