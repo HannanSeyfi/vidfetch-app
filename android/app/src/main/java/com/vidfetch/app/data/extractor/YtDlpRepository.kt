@@ -13,7 +13,7 @@ data class DownloadResult(val height: Int?, val file: File)
 
 interface YtDlpRepository {
     suspend fun analyze(url: String): VideoInfo
-    suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): DownloadResult
+    suspend fun download(url: String, height: Int?, outputTemplate: String, audioOnly: Boolean = false, progress: (Int) -> Unit): DownloadResult
 }
 
 class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
@@ -28,42 +28,52 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         }
     }
 
-    override suspend fun download(url: String, height: Int?, outputTemplate: String, progress: (Int) -> Unit): DownloadResult = withContext(Dispatchers.IO) {
+    override suspend fun download(url: String, height: Int?, outputTemplate: String, audioOnly: Boolean, progress: (Int) -> Unit): DownloadResult = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
             extractWithCompatibility(url) { backend ->
-                val output = ExtractorRuntime.run(context, downloadArguments(cookie, url, height, outputTemplate), progress, backend)
-                completedDownload(output, outputTemplate)
+                val output = ExtractorRuntime.run(context, downloadArguments(cookie, url, height, outputTemplate, audioOnly), progress, backend)
+                completedDownload(output, outputTemplate, audioOnly)
             }
         }
     }
 
     internal fun analysisArguments(cookie: File?, url: String) = baseArguments(cookie) + listOf("--dump-single-json", "--skip-download", "--", url)
 
-    internal fun downloadArguments(cookie: File?, url: String, height: Int?, outputTemplate: String): List<String> {
+    internal fun downloadArguments(cookie: File?, url: String, height: Int?, outputTemplate: String, audioOnly: Boolean = false): List<String> {
         // Any retried site request starts clean, including a retry on the modern runtime.
         val restart = if (supportsCompatibility(url)) listOf("--force-overwrites", "--no-continue") else emptyList()
-        val youtube = if (siteForUrl(url) == "youtube.com") listOf("--format-sort", "res,vcodec:h264,acodec:aac", "--remux-video", "mp4") else emptyList()
-        return baseArguments(cookie) + restart + youtube + listOf(
-            "-f", selectorFor(height, url), "--merge-output-format", "mp4", "-o", outputTemplate,
+        val processing = if (audioOnly) listOf("--extract-audio", "--audio-format", "m4a", "--audio-quality", "0") else {
+            val youtube = if (siteForUrl(url) == "youtube.com") listOf("--format-sort", "res,vcodec:h264,acodec:aac", "--remux-video", "mp4") else emptyList()
+            youtube + listOf("--merge-output-format", "mp4")
+        }
+        return baseArguments(cookie) + restart + processing + listOf(
+            "-f", selectorFor(height, url, audioOnly), "-o", outputTemplate,
             "--newline", "--progress", "--progress-template", "download:VIDFETCH_PROGRESS:%(progress._percent_str)s",
             "--print", "after_move:VIDFETCH_HEIGHT:%(height)s",
             "--print", "after_move:VIDFETCH_FILE:%(filepath)j", "--", url,
         )
     }
 
-    internal suspend fun completedDownload(output: String, outputTemplate: String): DownloadResult {
+    internal suspend fun completedDownload(output: String, outputTemplate: String, audioOnly: Boolean = false): DownloadResult {
+        val kind = if (audioOnly) "audio" else "video"
         val value = output.lineSequence().lastOrNull { it.startsWith("VIDFETCH_FILE:") }?.substringAfter(':')
-            ?: error("The extractor did not report a completed video. Video/audio merging may have failed.")
+            ?: error("The extractor did not report a completed $kind file. Media processing may have failed.")
         val file = File(JSONArray("[$value]").getString(0)).canonicalFile
         val folder = File(outputTemplate).parentFile!!.canonicalFile
-        check(file.parentFile == folder && file.isFile && file.length() > 0) { "The completed video is missing. Video/audio merging may have failed." }
-        check(file.extension.lowercase() in videoFileExtensions) { "The downloaded file is not a video file." }
+        check(file.parentFile == folder && file.isFile && file.length() > 0) { "The completed $kind file is missing. Media processing may have failed." }
+        check(file.extension.lowercase() in if (audioOnly) audioFileExtensions else videoFileExtensions) { "The downloaded file is not a $kind file." }
         val probe = JSONObject(ExtractorRuntime.media(context, "ffprobe", listOf("-v", "error", "-show_streams", "-of", "json", file.absolutePath)))
         val streams = probe.getJSONArray("streams")
         val video = (0 until streams.length()).map { streams.getJSONObject(it) }.firstOrNull {
             it.optString("codec_type") == "video" && it.optJSONObject("disposition")?.optInt("attached_pic") != 1
-        } ?: error("The downloaded file contains no video stream. It was not saved to Downloads.")
-        return DownloadResult(video.optInt("height").takeIf { it > 0 }, file)
+        }
+        if (audioOnly) {
+            check((0 until streams.length()).any { streams.getJSONObject(it).optString("codec_type") == "audio" }) {
+                "The downloaded file contains no audio stream. It was not saved to Downloads."
+            }
+            check(video == null) { "Audio extraction left a video stream. It was not saved to Downloads." }
+        } else check(video != null) { "The downloaded file contains no video stream. It was not saved to Downloads." }
+        return DownloadResult(video?.optInt("height")?.takeIf { it > 0 }, file)
     }
 
     private fun baseArguments(cookie: File?) = buildList {
@@ -91,11 +101,13 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
 
     private fun JSONObject.toFormat(): VideoFormat {
         val videoCodec = optString("vcodec").takeUnless { it.isBlank() || it == "null" }
+        val audioCodec = optString("acodec").takeUnless { it.isBlank() || it == "null" }
         // Direct MP4 extractors such as Pornhub may provide a resolution without a codec.
-        // yt-dlp uses "none" to explicitly identify formats without video.
+        // yt-dlp uses "none" to explicitly identify missing video/audio streams;
+        // unspecified codecs can still contain audio that FFmpeg can extract.
         return VideoFormat(optString("format_id"), optInt("height").takeIf { it > 0 }, optInt("width").takeIf { it > 0 },
             optDouble("fps").takeIf { !it.isNaN() }, optString("ext").ifBlank { null }, videoCodec,
-            optString("acodec").ifBlank { null }, optLong("filesize").takeIf { it > 0 }, optLong("filesize_approx").takeIf { it > 0 },
-            optDouble("tbr").takeIf { !it.isNaN() }, videoCodec != "none", optString("acodec") !in listOf("", "none"))
+            audioCodec, optLong("filesize").takeIf { it > 0 }, optLong("filesize_approx").takeIf { it > 0 },
+            optDouble("tbr").takeIf { !it.isNaN() }, videoCodec != "none", audioCodec != "none")
     }
 }

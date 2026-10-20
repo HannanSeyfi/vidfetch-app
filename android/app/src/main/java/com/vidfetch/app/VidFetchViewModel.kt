@@ -136,12 +136,12 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
 
     private fun action(block: () -> Unit) {
         try { block() } catch (error: Exception) {
-            mutable.update { it.copy(downloadsMessage = error.message ?: "No app can handle this video.") }
+            mutable.update { it.copy(downloadsMessage = error.message ?: "No app can handle this file.") }
         }
     }
 
-    fun delete(item: DownloadedMedia) = changeFile("Could not delete the video.") { media.delete(item) }
-    fun rename(item: DownloadedMedia, name: String) = changeFile("Could not rename the video. Check the name and try again.") { media.rename(item, name) }
+    fun delete(item: DownloadedMedia) = changeFile("Could not delete the file.") { media.delete(item) }
+    fun rename(item: DownloadedMedia, name: String) = changeFile("Could not rename the file. Check the name and try again.") { media.rename(item, name) }
 
     private fun changeFile(failure: String, operation: () -> Boolean) {
         viewModelScope.launch {

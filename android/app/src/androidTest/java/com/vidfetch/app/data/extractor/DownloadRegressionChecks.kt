@@ -52,6 +52,27 @@ internal fun checkYoutubeSeparateStreams() = runBlocking {
             val audio = File(folder, "audio.webm")
             val error = runCatching { repository.completedDownload("VIDFETCH_FILE:${JSONArray().put(audio.absolutePath).toString().removePrefix("[").removeSuffix("]")}", File(folder, "invalid.%(ext)s").absolutePath) }.exceptionOrNull()
             assertTrue(error?.message.orEmpty().contains("no video stream"))
+            for (backend in ExtractorBackend.entries) {
+                val template = File(folder, "audio-${backend.name}.%(ext)s").absolutePath
+                val arguments = repository.downloadArguments(null, "https://www.youtube.com/watch?v=synthetic-video", 240, template, audioOnly = true)
+                assertFalse(arguments.contains("--remux-video"))
+                assertFalse(arguments.contains("--merge-output-format"))
+                assertFalse(arguments.any { it.contains("height=") })
+                val config = File(folder, "audio-arguments.json").apply { writeText(JSONArray(arguments).toString()) }
+                val output = ExtractorRuntime.python(context, listOf(script.absolutePath, ExtractorRuntime.engineFile(context).absolutePath,
+                    "http://127.0.0.1:${server.port}", config.absolutePath), backend)
+                val result = repository.completedDownload(output, template, audioOnly = true)
+                assertNull(result.height)
+                assertEquals("m4a", result.file.extension)
+                val probe = ExtractorRuntime.media(context, "ffprobe", listOf("-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "csv=p=0", result.file.absolutePath))
+                assertTrue(probe.contains("aac") && probe.contains("audio"))
+                assertFalse(probe.contains("video"))
+            }
+            // A misleading extension must never make a silent/video file valid audio.
+            val silent = File(folder, "silent.m4a")
+            File(folder, "video240.mp4").copyTo(silent, overwrite = true)
+            val invalidAudio = runCatching { repository.completedDownload("VIDFETCH_FILE:${org.json.JSONObject.quote(silent.absolutePath)}", silent.absolutePath, audioOnly = true) }.exceptionOrNull()
+            assertTrue(invalidAudio?.message.orEmpty().contains("no audio stream"))
         }
     } finally { folder.deleteRecursively() }
 }
@@ -109,7 +130,7 @@ internal fun checkDownloadsFolderContents() = runBlocking {
     }
 }
 
-private fun clickText(text: String) {
+internal fun clickText(text: String, scroll: Boolean = false) {
     val runner = ExtractorInstrumentationRunner.active
     val deadline = SystemClock.uptimeMillis() + 15_000
     var visible = emptyList<String>()
@@ -126,6 +147,7 @@ private fun clickText(text: String) {
             while (node != null && !node.isClickable) node = node.parent
             if (node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { SystemClock.sleep(500); return }
         }
+        if (scroll) nodes.firstOrNull { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
         SystemClock.sleep(200)
     }
     error("Could not click '$text' in Android UI. Visible: $visible")
