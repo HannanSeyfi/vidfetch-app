@@ -25,7 +25,7 @@ class FormattersTest {
     }
     @Test fun audioSelectorPrefersSeparateAudioThenCombinedAudioAcrossSites() {
         for (url in listOf("https://youtu.be/example", "https://www.pornhub.com/view_video.php?viewkey=example", "https://www.reddit.com/r/videos/example", "https://example.com/video")) {
-            assertEquals("bestaudio/best[acodec!=none]", selectorFor(720, url, audioOnly = true))
+            assertEquals("bestaudio/best[acodec!=?none]", selectorFor(720, url, audioOnly = true))
         }
     }
     @Test fun filenameIsSafe() { assertEquals("bad_name_.mp4", safeFilename("bad:name?")) }

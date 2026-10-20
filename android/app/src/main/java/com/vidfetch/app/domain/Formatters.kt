@@ -19,7 +19,9 @@ fun qualities(formats: List<VideoFormat>): List<VideoQuality> = buildList {
     if (formats.any { it.hasAudio }) add(VideoQuality(null, "Audio only · M4A", null, audioOnly = true))
 }
 fun selectorFor(height: Int?, url: String = "", audioOnly: Boolean = false): String {
-    if (audioOnly) return "bestaudio/best[acodec!=none]"
+    // '?' keeps direct media with unspecified audio metadata eligible for extraction.
+    // Explicitly silent streams remain excluded; ffprobe validates the final output.
+    if (audioOnly) return "bestaudio/best[acodec!=?none]"
     if (siteForUrl(url) == "youtube.com") {
         val exact = height?.let { "[height=$it]" }.orEmpty()
         val preferred = listOf("bestvideo*$exact+bestaudio[ext=m4a]", "bestvideo*$exact+bestaudio", "best$exact")
