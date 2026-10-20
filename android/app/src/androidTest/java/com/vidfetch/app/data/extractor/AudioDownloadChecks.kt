@@ -1,6 +1,7 @@
 package com.vidfetch.app.data.extractor
 
 import android.Manifest
+import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
@@ -50,7 +51,26 @@ internal fun checkSharedLinkAudioDownload() = runBlocking {
         val saved = media.list().single { it.title.startsWith(name) }
         assertTrue(saved.isAudio)
         assertTrue(saved.title.endsWith(".m4a"))
-        assertEquals("audio/mp4", context.contentResolver.getType(saved.uri))
+        // Older FileProvider MIME tables label .m4a as audio/mpeg. The app's
+        // actual playback/sharing intents must still advertise the M4A container.
+        assertTrue(context.contentResolver.getType(saved.uri).orEmpty().startsWith("audio/"))
+        var launched: Intent? = null
+        val actions = DownloadedMediaRepository(object : ContextWrapper(context) {
+            override fun startActivity(intent: Intent) { launched = intent }
+        })
+        actions.open(saved)
+        assertEquals(Intent.ACTION_VIEW, launched!!.action)
+        assertEquals("audio/mp4", launched!!.type)
+        assertEquals(saved.uri, launched!!.data)
+        assertTrue(launched!!.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        actions.share(saved)
+        assertEquals(Intent.ACTION_CHOOSER, launched!!.action)
+        @Suppress("DEPRECATION")
+        val send = launched!!.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!
+        assertEquals(Intent.ACTION_SEND, send.action)
+        assertEquals("audio/mp4", send.type)
+        assertEquals(saved.uri, send.clipData!!.getItemAt(0).uri)
+        assertTrue(send.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
         val verification = File(folder, "verify.m4a")
         context.contentResolver.openInputStream(saved.uri)!!.use { input -> verification.outputStream().use { input.copyTo(it) } }
         val streams = ExtractorRuntime.media(context, "ffprobe", listOf("-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", verification.absolutePath))
