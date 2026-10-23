@@ -11,6 +11,23 @@ from vidfetch_bot.files import file_hash, file_parts, join_program
 
 
 class FileTests(unittest.IsolatedAsyncioTestCase):
+    async def test_joiner_preserves_existing_output_and_unrelated_partial_file(self):
+        for existing in ("video.mp4", "video.mp4.joining"):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "video.mp4.part0001").write_bytes(b"original")
+                (root / existing).write_bytes(b"keep-existing-data")
+                script = root / "join.py"
+                script.write_text(
+                    join_program("video.mp4", 1, 8, hashlib.sha256(b"original").hexdigest()),
+                    encoding="utf-8",
+                )
+                result = await asyncio.to_thread(
+                    subprocess.run, [sys.executable, str(script)], capture_output=True
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((root / existing).read_bytes(), b"keep-existing-data")
+
     async def test_parts_rejoin_byte_for_byte_and_are_cleaned_after_delivery(self):
         for size in (32, 33, 64, 65):
             with self.subTest(size=size), tempfile.TemporaryDirectory() as directory:

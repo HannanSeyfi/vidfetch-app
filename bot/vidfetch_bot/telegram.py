@@ -61,6 +61,7 @@ class Telegram:
             transport=transport,
             timeout=httpx.Timeout(60, connect=20, write=600),
             follow_redirects=False,
+            trust_env=not local_files,  # Loopback requests must not use an HTTP proxy.
         )
 
     async def close(self) -> None:
