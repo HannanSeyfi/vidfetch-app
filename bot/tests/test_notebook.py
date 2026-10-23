@@ -1,11 +1,13 @@
 import ast
+import asyncio
 import importlib.util
 import json
 import tempfile
 import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import nbformat
 
@@ -13,6 +15,36 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NotebookTests(unittest.TestCase):
+    def test_start_cell_uses_all_credentials_and_the_local_api_context(self):
+        notebook = json.loads((ROOT / "VidFetch_Telegram_Colab.ipynb").read_text(encoding="utf-8"))
+        source = "".join(notebook["cells"][2]["source"])
+        connected = object()
+        calls = []
+
+        @asynccontextmanager
+        async def server(token, identifier, secret, *, binary):
+            calls.append((token, identifier, secret, binary))
+            yield connected
+            calls.append("stopped")
+
+        namespace = {"vidfetch_api_binary": Path("server-fixture")}
+        with (
+            patch(
+                "vidfetch_bot.credentials.read_secret",
+                side_effect=["hidden-token", "123", "hidden-hash"],
+            ),
+            patch("vidfetch_bot.local_api.local_bot_api", server),
+            patch("vidfetch_bot.app.run_bot", AsyncMock()) as run,
+            patch("builtins.print") as output,
+        ):
+            code = compile(source, "notebook-start", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+            asyncio.run(eval(code, namespace))
+            run.assert_awaited_once_with("hidden-token", allowed_users=set(), api=connected)
+            self.assertEqual(
+                calls, [("hidden-token", "123", "hidden-hash", Path("server-fixture")), "stopped"]
+            )
+            self.assertNotIn("hidden-", str(output.call_args_list))
+
     def test_generated_notebook_matches_sources_and_is_valid(self):
         spec = importlib.util.spec_from_file_location(
             "build_notebook", ROOT / "tools" / "build_notebook.py"
