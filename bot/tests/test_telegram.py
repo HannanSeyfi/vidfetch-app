@@ -3,14 +3,81 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from vidfetch_bot.telegram import Telegram, TelegramError
+from vidfetch_bot.telegram import LOCAL_UPLOAD_LIMIT, Telegram, TelegramError
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_server_exit_stops_polling_instead_of_retrying_forever(self):
+        api = Telegram("unused", api_root="http://127.0.0.1:8081", local_files=True)
+        api.server_process = SimpleNamespace(returncode=1)
+        try:
+            updates = api.poll()
+            with self.assertRaisesRegex(TelegramError, "server stopped"):
+                await anext(updates)
+            await updates.aclose()
+        finally:
+            await api.close()
+
+    async def test_large_files_use_local_paths_for_video_audio_and_documents(self):
+        requests = []
+
+        def transport(request):
+            requests.append(request)
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 7}})
+
+        api = Telegram(
+            "unused-test-credential",
+            api_root="http://127.0.0.1:8081",
+            local_files=True,
+            transport=httpx.MockTransport(transport),
+        )
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "original video.mp4"
+                with path.open("wb") as stream:
+                    stream.truncate(60_000_000)
+                await api.upload(12, path, "Original", width=1920, height=1080, duration=60)
+                await api.upload_audio(12, path, "Original", title="Track", duration=60)
+                await api.upload_document(12, path, "Original")
+                self.assertEqual(api.upload_limit, LOCAL_UPLOAD_LIMIT)
+                for request, field in zip(requests, ["video", "audio", "document"], strict=True):
+                    self.assertEqual(request.url.host, "127.0.0.1")
+                    self.assertEqual(json.loads(request.content)[field], path.resolve().as_uri())
+                    self.assertLess(len(request.content), 1000)
+                    self.assertEqual(request.extensions["timeout"]["read"], 3600)
+        finally:
+            await api.close()
+
+    async def test_local_paths_cannot_be_sent_to_a_remote_server(self):
+        for origin in ("http://example.com", "https://example.com"):
+            with self.subTest(origin=origin), self.assertRaises(ValueError):
+                Telegram("unused", api_root=origin, local_files=True)
+
+    async def test_format_rejection_falls_back_but_network_failure_never_duplicates_upload(self):
+        for code, description, methods in [
+            (400, "VIDEO_CONTENT_INVALID", ["sendVideo", "sendDocument"]),
+            (0, "network", ["sendVideo"]),
+            (413, "file too big", ["sendVideo"]),
+        ]:
+            api = Telegram("unused")
+            api.send_file = AsyncMock(side_effect=[TelegramError(code, description), None])
+            try:
+                if code == 400:
+                    await api.upload(1, Path("video.mp4"), "Caption", width=2, height=2, duration=1)
+                else:
+                    with self.assertRaises(TelegramError):
+                        await api.upload(
+                            1, Path("video.mp4"), "Caption", width=2, height=2, duration=1
+                        )
+                self.assertEqual([c.args[0] for c in api.send_file.await_args_list], methods)
+            finally:
+                await api.close()
+
     async def test_m4a_upload_uses_send_audio_with_music_player_metadata(self):
         calls = []
 
@@ -31,7 +98,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 b"actual-audio-payload",
                 b'name="audio"',
                 b"audio/mp4",
-                b"VidFetch.m4a",
+                b"audio.m4a",
                 b'name="duration"',
                 b"Track title",
             ):

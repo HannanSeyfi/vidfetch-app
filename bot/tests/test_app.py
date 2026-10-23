@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from vidfetch_bot import media
 from vidfetch_bot.app import Bot, Selection, delivery_caption, run_bot
+from vidfetch_bot.telegram import LOCAL_UPLOAD_LIMIT
 
 
 class CaptionTests(unittest.TestCase):
@@ -42,11 +43,14 @@ class CaptionTests(unittest.TestCase):
 
 class FakeTelegram:
     def __init__(self):
+        self.local_files = True
+        self.upload_limit = LOCAL_UPLOAD_LIMIT
         self.messages = []
         self.edits = []
         self.answers = []
         self.uploads = []
         self.audio_uploads = []
+        self.documents = []
 
     async def message(self, chat_id, text, *, keyboard=None):
         message = {
@@ -69,6 +73,9 @@ class FakeTelegram:
 
     async def upload_audio(self, chat_id, path, caption, **kwargs):
         self.audio_uploads.append((chat_id, path.read_bytes(), caption, kwargs))
+
+    async def upload_document(self, chat_id, path, caption):
+        self.documents.append((path.name, path.read_bytes(), caption))
 
 
 def message(text, user=1, chat=None):
@@ -108,7 +115,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(Path(self.directory.name).iterdir()), [])
         self.directory.cleanup()
 
-    async def test_link_quality_compress_and_upload_conversation(self):
+    async def test_link_quality_preserving_upload_conversation(self):
         analysis = media.Analysis("Example", (media.Quality(720, "v+a", 60_000_000),))
 
         async def download(url, quality, folder):
@@ -116,12 +123,13 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             source.write_bytes(b"download")
             return source
 
-        async def prepare(source, status):
-            await status("Compressing…")
+        async def prepare(source, status, **options):
+            self.assertTrue(options["preserve_quality"])
+            self.assertEqual(options["limit"], LOCAL_UPLOAD_LIMIT)
             target = source.parent / "telegram.mp4"
             target.write_bytes(b"video-data")
             return media.PreparedVideo(
-                target, media.Probe(12.3, 640, 360, "h264", "yuv420p", "aac"), True
+                target, media.Probe(12.3, 1280, 720, "h264", "yuv420p", "aac"), False
             )
 
         with (
@@ -133,13 +141,13 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             await finish(self.bot)
             button = self.api.messages[-1]["keyboard"][0][0]
             self.assertIn("~60.0 MB", button["text"])
-            self.assertIn("compress", button["text"])
+            self.assertNotIn("compress", button["text"])
             self.assertLessEqual(len(button["callback_data"].encode()), 64)
             await self.bot.handle(callback(button["callback_data"]))
             await finish(self.bot)
         self.assertEqual(self.api.uploads[0][1], b"video-data")
-        self.assertIn("360p", self.api.uploads[0][2])
-        self.assertIn("compressed", self.api.uploads[0][2])
+        self.assertIn("720p", self.api.uploads[0][2])
+        self.assertNotIn("compressed", self.api.uploads[0][2])
         self.assertIn('Source: <a href="https://example.com/video">', self.api.uploads[0][2])
         self.assertEqual(self.api.uploads[0][3]["duration"], 13)
         self.assertFalse(self.bot.selections)
@@ -180,7 +188,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             source.write_bytes(b"source-audio")
             return source
 
-        async def prepared(source, status):
+        async def prepared(source, status, **options):
             output = source.parent / "telegram.m4a"
             output.write_bytes(b"prepared-audio")
             return media.PreparedAudio(output, media.AudioProbe(12.3, "aac", 128_000, 0), True)
@@ -206,7 +214,8 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.api.audio_uploads[0][3], {"title": "Example audio", "duration": 13})
         self.assertFalse(self.bot.selections)
 
-    async def test_oversized_audio_is_not_uploaded(self):
+    async def test_oversized_audio_is_sent_in_lossless_file_parts(self):
+        self.api.upload_limit = 32
         analysis = media.Analysis("Example", (media.Quality(None, "a", None, audio_only=True),))
         self.bot.selections["key"] = Selection(
             (1, 1), "https://example.com", analysis, time.monotonic() + 10
@@ -217,10 +226,9 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             source.write_bytes(b"source-audio")
             return source
 
-        async def prepared(source, status):
+        async def prepared(source, status, **options):
             output = source.parent / "telegram.m4a"
-            with output.open("wb") as file:
-                file.truncate(media.UPLOAD_LIMIT + 1)
+            output.write_bytes(b"original-audio" * 9)
             return media.PreparedAudio(output, media.AudioProbe(10, "aac", 128_000, 0), True)
 
         with (
@@ -230,7 +238,11 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             await self.bot.handle(callback("q:key:0"))
             await finish(self.bot)
         self.assertFalse(self.api.audio_uploads)
-        self.assertIn("exceeds", self.api.edits[-1])
+        parts = [data for name, data, _ in self.api.documents if ".part" in name]
+        self.assertEqual(b"".join(parts), b"original-audio" * 9)
+        self.assertTrue(all(len(data) <= 32 for data in parts))
+        self.assertTrue(self.api.documents[-1][0].endswith(".py"))
+        self.assertIn("Sent all", self.api.edits[-1])
 
     async def test_notebook_entrypoint_initializes_polls_and_shuts_down(self):
         async def updates():
@@ -255,7 +267,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_active_job_and_remove_its_files(self):
         started = asyncio.Event()
 
-        async def slow_analyze(url, folder):
+        async def slow_analyze(url, folder, **options):
             (folder / "partial.mp4").write_bytes(b"partial")
             started.set()
             await asyncio.Event().wait()
@@ -287,16 +299,16 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         gate.set()
         await finish(self.bot)
 
-    async def test_oversized_output_never_reaches_telegram(self):
+    async def test_oversized_video_is_sent_in_lossless_file_parts(self):
+        self.api.upload_limit = 32
         analysis = media.Analysis("Example", (media.Quality(360, "v", 10),))
         self.bot.selections["key"] = Selection(
             (1, 1), "https://example.com", analysis, time.monotonic() + 10
         )
 
-        async def oversized(source, status):
+        async def oversized(source, status, **options):
             output = source.parent / "telegram.mp4"
-            with output.open("wb") as handle:
-                handle.truncate(media.UPLOAD_LIMIT + 1)
+            output.write_bytes(b"original-video" * 9)
             return media.PreparedVideo(
                 output, media.Probe(10, 640, 360, "h264", "yuv420p", None), True
             )
@@ -313,4 +325,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             await self.bot.handle(callback("q:key:0"))
             await finish(self.bot)
         self.assertFalse(self.api.uploads)
-        self.assertIn("exceeds", self.api.edits[-1])
+        parts = [data for name, data, _ in self.api.documents if ".part" in name]
+        self.assertEqual(b"".join(parts), b"original-video" * 9)
+        self.assertTrue(all(len(data) <= 32 for data in parts))
+        self.assertIn("Sent all", self.api.edits[-1])

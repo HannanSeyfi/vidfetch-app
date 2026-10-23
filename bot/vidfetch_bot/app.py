@@ -11,18 +11,20 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import aclosing
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
-from . import media
+from . import files, media
 from .telegram import Telegram, TelegramError
 
 HELP = (
     "Send a link and choose a video quality or Audio only. Each button shows an estimated file size; "
-    "video sizes include audio where available. Audio only sends an M4A file in Telegram's audio player. "
-    "Oversized videos and audio are automatically compressed for Telegram.\n\n"
-    "Sizes are estimates; compression may reduce resolution and detail. "
+    "video sizes include audio where available. Audio only extracts the original audio track. "
+    "Original quality is preserved with the local Telegram server. Files above its per-file limit "
+    "are delivered as numbered parts with a verified Python joiner. Download every part to rejoin.\n\n"
+    "Sizes are estimates. "
     "Only one request is processed at a time in this Colab session.\n\n"
     "/cancel — cancel your current request\n/status — show your request status\n"
     "/id — show your Telegram user ID\n/help — show these instructions"
@@ -188,21 +190,33 @@ class Bot:
         self, url: str, owner: tuple[int, int], status: media.Status, folder: Path
     ) -> None:
         await status("Finding available video qualities…")
-        analysis = await media.analyze(url, folder)
+        analysis = await media.analyze(url, folder, preserve_quality=self.api.local_files)
         self.expire_menus(owner)
         key = secrets.token_urlsafe(8)
         self.selections[key] = Selection(owner, url, analysis, time.monotonic() + 1800)
         keyboard = [
-            [{"text": quality.label, "callback_data": f"q:{key}:{index}"}]
+            [
+                {
+                    "text": quality.label_for(
+                        self.api.upload_limit, preserve_quality=self.api.local_files
+                    ),
+                    "callback_data": f"q:{key}:{index}",
+                }
+            ]
             for index, quality in enumerate(analysis.qualities)
         ]
         try:
             await self.api.message(
                 owner[0],
                 f"{analysis.title}\n\nChoose a quality. Sizes include audio "
-                "when known. Audio only sends an M4A audio track. "
-                "“compress” means the estimate exceeds the upload budget; "
-                "the delivered file may have lower quality.\n\nMenu expires in 30 minutes.",
+                "when known. Audio only extracts the audio track. "
+                + (
+                    "Original quality is preserved. Files above the per-file limit are sent as "
+                    "numbered file parts that must be rejoined after download."
+                    if self.api.local_files
+                    else "Cloud mode compresses files to fit 49 MB."
+                )
+                + "\n\nMenu expires in 30 minutes.",
                 keyboard=keyboard,
             )
         except BaseException:
@@ -234,48 +248,101 @@ class Bot:
             await status(f"Downloading {choice}…")
             source = await media.download(selection.url, quality, folder)
             if quality.audio_only:
-                audio = await media.prepare_audio(source, status)
+                audio = await media.prepare_audio(
+                    source,
+                    status,
+                    limit=self.api.upload_limit,
+                    preserve_quality=self.api.local_files,
+                )
                 size = audio.path.stat().st_size
-                if size > media.UPLOAD_LIMIT:
-                    raise media.MediaError(
-                        "The prepared audio exceeds the upload budget. Try a shorter clip."
-                    )
+                if size > self.api.upload_limit:
+                    await self.deliver_parts(owner[0], audio.path, selection, status)
+                    return
                 await status(f"Uploading {media.format_size(size)} of audio to Telegram…")
                 details = f"Audio only · {media.format_size(size)}"
                 if audio.compressed:
                     details += " · compressed for Telegram"
-                await self.api.upload_audio(
-                    owner[0],
-                    audio.path,
-                    delivery_caption(selection.analysis.title, details, selection.url),
-                    title=selection.analysis.title,
-                    duration=math.ceil(audio.probe.duration),
-                )
+                caption = delivery_caption(selection.analysis.title, details, selection.url)
+                if audio.document:
+                    await self.api.upload_document(owner[0], audio.path, caption)
+                else:
+                    await self.api.upload_audio(
+                        owner[0],
+                        audio.path,
+                        caption,
+                        title=selection.analysis.title,
+                        duration=math.ceil(audio.probe.duration),
+                    )
                 await status("Audio sent. Send another link whenever you're ready.")
                 return
-            prepared = await media.prepare_video(source, status)
+            prepared = await media.prepare_video(
+                source, status, limit=self.api.upload_limit, preserve_quality=self.api.local_files
+            )
             size = prepared.path.stat().st_size
-            if size > media.UPLOAD_LIMIT:
-                raise media.MediaError(
-                    "The prepared file exceeds the upload budget. Try a shorter video."
-                )
+            if size > self.api.upload_limit:
+                await self.deliver_parts(owner[0], prepared.path, selection, status)
+                return
             await status(f"Uploading {media.format_size(size)} to Telegram…")
             result_quality = f"{prepared.probe.height}p"
             details = f"{result_quality} · {media.format_size(size)}"
             if prepared.compressed:
                 details += " · compressed for Telegram"
-            await self.api.upload(
-                owner[0],
-                prepared.path,
-                delivery_caption(selection.analysis.title, details, selection.url),
-                width=prepared.probe.width,
-                height=prepared.probe.height,
-                duration=math.ceil(prepared.probe.duration),
-            )
+            caption = delivery_caption(selection.analysis.title, details, selection.url)
+            if prepared.document:
+                await self.api.upload_document(owner[0], prepared.path, caption)
+            else:
+                await self.api.upload(
+                    owner[0],
+                    prepared.path,
+                    caption,
+                    width=prepared.probe.width,
+                    height=prepared.probe.height,
+                    duration=math.ceil(prepared.probe.duration),
+                )
             await status("Sent. Send another video link whenever you're ready.")
 
         if await self.schedule(owner, deliver, status_message=callback["message"]):
             self.selections.pop(match[1], None)
+
+    async def deliver_parts(
+        self, chat_id: int, path: Path, selection: Selection, status: media.Status
+    ) -> None:
+        if not self.api.local_files:
+            raise media.MediaError("The prepared file exceeds the cloud upload budget.")
+        name = f"VidFetch-{secrets.token_hex(4)}{path.suffix}"
+        size = path.stat().st_size
+        count = (size + self.api.upload_limit - 1) // self.api.upload_limit
+        await self.api.message(
+            chat_id,
+            f"This file needs {count} parts because Telegram limits individual files. "
+            "Quality is preserved. Download all parts and the joiner into one folder, then run "
+            "the joiner with Python 3 to restore the original file. Parts do not play separately.",
+        )
+        await status("Verifying the original file before sending its parts…")
+        digest = await files.file_hash(path)
+        async with aclosing(files.file_parts(path, self.api.upload_limit, name)) as parts:
+            async for part, index, total in parts:
+                await status(f"Uploading file part {index}/{total}…")
+                await self.api.upload_document(
+                    chat_id,
+                    part,
+                    delivery_caption(
+                        selection.analysis.title,
+                        f"Original quality · file part {index}/{total}",
+                        selection.url,
+                    ),
+                )
+        joiner = path.parent / f"join-{name}.py"
+        joiner.write_text(files.join_program(name, count, size, digest), encoding="utf-8")
+        await self.api.upload_document(
+            chat_id,
+            joiner,
+            "Save beside all parts and run with Python 3. "
+            "The original file is restored only after its size and SHA-256 match.",
+        )
+        await status(
+            f"Sent all {count} parts and the joiner. Download them together to restore the file."
+        )
 
     async def close(self) -> None:
         tasks = [job.task for job in self.jobs.values()]
@@ -286,7 +353,9 @@ class Bot:
         self.selections.clear()
 
 
-async def run_bot(token: str, *, allowed_users: set[int] | None = None) -> None:
+async def run_bot(
+    token: str, *, allowed_users: set[int] | None = None, api: Telegram | None = None
+) -> None:
     """Await directly in Colab; interrupt the running cell to shut down cleanly."""
     if not re.fullmatch(r"\d{5,20}:[A-Za-z0-9_-]{20,}", token.strip()):
         print("Enter the complete bot token from @BotFather, including the colon.")
@@ -298,7 +367,8 @@ async def run_bot(token: str, *, allowed_users: set[int] | None = None) -> None:
         if not shutil.which(tool):
             print(f"Missing {tool}. Run the setup cell first.")
             return
-    api = Telegram(token.strip())
+    owns_api = api is None
+    api = api or Telegram(token.strip())
     bot = Bot(api, allowed_users=allowed_users)
     try:
         identity = await api.call("getMe")
@@ -332,5 +402,6 @@ async def run_bot(token: str, *, allowed_users: set[int] | None = None) -> None:
         pass
     finally:
         await bot.close()
-        await api.close()
+        if owns_api:
+            await api.close()
         print("VidFetch stopped. Run this cell again to restart it.")

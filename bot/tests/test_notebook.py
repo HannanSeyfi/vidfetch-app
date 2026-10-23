@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import nbformat
@@ -36,6 +37,13 @@ class NotebookTests(unittest.TestCase):
         notebook = json.loads((ROOT / "VidFetch_Telegram_Colab.ipynb").read_text(encoding="utf-8"))
         source = "".join(notebook["cells"][1]["source"])
         namespace = {}
+        real_import = __import__
+
+        def setup_import(name, *args, **kwargs):
+            if name == "vidfetch_bot.local_api":
+                return SimpleNamespace(install_server=lambda: Path("mock-server"))
+            return real_import(name, *args, **kwargs)
+
         # Exercise the generated bootstrap itself; dependency installation is tested by CI.
         with (
             tempfile.TemporaryDirectory() as directory,
@@ -44,6 +52,7 @@ class NotebookTests(unittest.TestCase):
             patch("shutil.which", return_value="installed"),
             patch("subprocess.check_output", return_value="libx264"),
             patch("builtins.print"),
+            patch("builtins.__import__", side_effect=setup_import),
         ):
             import sys
 

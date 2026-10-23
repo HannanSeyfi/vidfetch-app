@@ -6,5 +6,10 @@ downloads/
 *.mp4
 *.webm
 *.mkv
+*.m4a
+*.mka
+*.mp3
 *.part
+*.part[0-9]*
+.cache/
 .env

@@ -122,6 +122,75 @@ class RealMediaTests(unittest.IsolatedAsyncioTestCase):
     def tearDownClass(cls):
         cls.directory.cleanup()
 
+    async def test_video_above_50_mb_is_not_reencoded_or_reduced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "original.mp4"
+            shutil.copy2(self.source, source)
+            with source.open("ab") as stream:
+                stream.truncate(60_000_000)
+            prepared = await media.prepare_video(source, AsyncMock(), preserve_quality=True)
+            self.assertEqual(prepared.path, source)
+            self.assertEqual(prepared.path.stat().st_size, 60_000_000)
+            self.assertEqual(prepared.probe.height, 540)
+            self.assertFalse(prepared.compressed)
+            self.assertFalse(prepared.document)
+
+    async def test_original_audio_codec_survives_even_when_above_a_simulated_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.opus"
+            shutil.copy2(self.opus, source)
+            prepared = await media.prepare_audio(
+                source, AsyncMock(), limit=100, preserve_quality=True
+            )
+            self.assertGreater(prepared.path.stat().st_size, 100)
+            self.assertEqual(prepared.probe.audio_codec, "opus")
+            self.assertFalse(prepared.compressed)
+            self.assertTrue(prepared.document)
+            self.assertAlmostEqual(prepared.probe.duration, 6, delta=0.2)
+
+    async def test_original_mkv_is_remuxed_without_changing_video_or_audio_packets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mkv"
+            subprocess.run(
+                ["ffmpeg", "-v", "error", "-i", str(self.source), "-c", "copy", str(source)],
+                check=True,
+            )
+            prepared = await media.prepare_video(
+                source, AsyncMock(), limit=100, preserve_quality=True
+            )
+            self.assertFalse(prepared.compressed)
+            self.assertGreater(prepared.path.stat().st_size, 100)
+
+            def packets(path):
+                import json
+
+                data = json.loads(
+                    subprocess.check_output(
+                        [
+                            "ffprobe",
+                            "-v",
+                            "error",
+                            "-show_packets",
+                            "-show_data_hash",
+                            "sha256",
+                            "-show_entries",
+                            "packet=stream_index,data_hash",
+                            "-of",
+                            "json",
+                            str(path),
+                        ]
+                    )
+                )
+                return data["packets"]
+
+            # Container interleaving can change, so compare packets within each stream.
+            before, after = packets(source), packets(prepared.path)
+            for stream in (0, 1):
+                self.assertEqual(
+                    [p["data_hash"] for p in before if p["stream_index"] == stream],
+                    [p["data_hash"] for p in after if p["stream_index"] == stream],
+                )
+
     async def test_full_duration_and_audio_survive_forced_size_compression(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.mp4"

@@ -2,51 +2,66 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HannanSeyfi/vidfetch-app/blob/codex/telegram-colab-bot/bot/VidFetch_Telegram_Colab.ipynb)
 
-Open the notebook, select **Runtime → Run all**, and enter the bot token from [@BotFather](https://t.me/BotFather) in the hidden prompt. Open the printed Telegram bot link, send `/start`, then send a video URL. No domain, public IP, Telegram API ID, API hash, Google Drive mount, or GPU is needed. Use a standard CPU runtime.
+VidFetch downloads video and audio in Colab and delivers the selected quality through Telegram. The notebook runs both the Python bot and Telegram's official Bot API server on the **Colab machine**, using its internet connection. No home server, public IP, domain, tunnel, Google Drive mount, or GPU is needed.
 
-The notebook installs FFmpeg/ffprobe if necessary, current nightly yt-dlp with its EJS challenge components and curl_cffi networking, Deno, and the Telegram HTTP client. It embeds the Python package from this directory, so it also works when opened from a branch, fork, or downloaded notebook. The token is held in runtime memory and is never stored in notebook code, files, or printed output. Do not paste a token into a code cell or share a running runtime with someone you do not trust.
+## Start or update the notebook
 
-## Using the bot
+1. Obtain the bot token from [@BotFather](https://t.me/BotFather).
+2. Obtain your own Telegram **api_id** and **api_hash** at [my.telegram.org/apps](https://my.telegram.org/apps). Sign in and create an API application if needed. These application credentials are separate from the bot token.
+3. Stop the old bot cell and any other copy of the same bot. Open the latest notebook from GitHub, choose a standard **CPU** runtime, and select **Runtime → Run all**.
+4. Enter all three credentials in the hidden prompts. Alternatively, create Colab Secrets named `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_ID`, and `TELEGRAM_API_HASH` and grant this notebook access. Never paste credentials into code cells.
+5. Open the printed bot link, send `/start`, and send a public video URL.
 
-The ready-to-upload [bot profile picture](assets/vidfetch-bot-avatar.png) matches VidFetch's blue video icon and coral download arrow, with a dark background and room for Telegram's circular crop. Its [generation prompt](assets/avatar-prompt.md) is included.
+The first setup compiles pinned official [telegram-bot-api](https://github.com/tdlib/telegram-bot-api) sources and can take several minutes. It reuses a completed build in the same runtime. The server listens only on `127.0.0.1` at a dynamically allocated port, with `--local` enabled. No third-party API gateway or prebuilt server binary is used.
 
-1. Send a single public video link in a private chat with the bot.
-2. Choose a resolution, for example `720p · ~38.2 MB`, or **Audio only**, for example `Audio only · ~5.2 MB`. Video sizes include the selected audio stream when known. Audio sizes estimate the delivered audio track, excluding video bytes. If a reliable estimate is unavailable, the button says `size unknown`.
-3. A `compress` marker means the estimate is above the upload budget. Download size and delivered size can differ.
-4. The bot downloads the selected streams, merges them, verifies a real video stream with ffprobe, and prepares a playable MP4. Oversized or incompatible videos are encoded as H.264/AAC, with two-pass encoding and a byte budget. It verifies the actual final size before uploading. The caption reports the delivered resolution and whether the video was compressed.
+The first start deregisters this bot from `api.telegram.org` with `logOut`, then routes **all** bot requests to the local server. Telegram prevents returning to the hosted API for ten minutes after that migration. Stopping and rerunning the bot cell reuses the runtime's server data and migration marker. Run only one instance of a bot at a time. If changing to another machine, stop the old instance first; use Telegram's [local-server migration procedure](https://github.com/tdlib/telegram-bot-api#moving-a-bot-from-one-local-server-to-another) when preserving pending updates matters.
 
-**Audio only** prefers a separate audio stream. For sites that provide only combined files, the bot downloads a lower-preference combined format and extracts its audio. It sends an **M4A audio file** through Telegram's music player, with the original title and duration. AAC tracks that fit are copied without re-encoding; other codecs are converted to AAC at up to 192 kb/s. Large tracks have their bitrate reduced to fit the upload budget, with the final size and full duration checked before sending. No video stream is included in the delivered audio. Clips known to be silent do not get an audio button; missing audio discovered after download produces a clear error.
+Saved Colab copies contain their old embedded Python sources. **Reopen the latest GitHub notebook and rerun both cells** to update; restarting only an old start cell cannot install this change.
 
-To get this option in an existing Colab session, **stop the old bot cell, reopen the latest notebook from GitHub, and run both cells again**. Saved Colab copies and old quality menus contain the previous version; restarting only the old start cell will not update them.
+Hidden prompts and Secrets keep credentials out of notebook source and outputs. The local server maintains authorization state in the temporary runtime filesystem, so do not share its data directory or a live runtime with someone you do not trust. The directory disappears when Colab deletes the runtime.
 
-Commands: `/start`, `/help`, `/status`, `/cancel`, and `/id`. Cancelling stops active download/encoding subprocesses and cleans temporary files. Menus belong to the user who requested them, expire after 30 minutes, and are invalidated after use or when that user requests another link.
+## Quality and large files
 
-Delivered video and audio captions include the title, file details, and a clickable **Source** link to the original URL you sent. Very long URLs use an **Original link** label to fit Telegram's caption limit while preserving the complete link.
+Choose a resolution or **Audio only**. Buttons show estimated sizes; video estimates include audio where known. Unknown sizes are labelled explicitly. Delivered captions include the title, actual size, and a clickable source URL.
 
-The optional `allowed_user_ids` field in the second notebook cell accepts comma-separated numeric Telegram user IDs. Find your ID using `/id`, stop the cell, enter your ID, and restart. A blank field allows anyone who discovers the bot to use it in private chats. Groups are not supported.
+- **No automatic 50 MB compression in the notebook.** Compatible H.264/AAC MP4 video is sent inline without lowering resolution, frame rate, or bitrate. Compatible streams from another container are remuxed without re-encoding. Other video codecs are delivered as original-quality documents.
+- **Audio only preserves the audio codec.** AAC is extracted as M4A and MP3 as MP3 for Telegram's music player. Other codecs, such as Opus, are extracted losslessly into an MKA document instead of being converted to AAC. No video stream is retained.
+- Telegram's [local Bot API supports up to 2,000 MB per file](https://core.telegram.org/bots/api#using-a-local-bot-api-server). VidFetch uses a conservative **1,950,000,000-byte** ceiling. The notebook never silently falls back to the hosted API's 50 MB limit if its local server fails.
+- Files above that ceiling are automatically sent as **numbered byte-exact file parts**, followed by a small Python joiner. A `split into files` marker indicates this in menus when the estimate is known. **These parts do not play separately.** Download every part and the joiner into one folder on a device with Python 3, then run the joiner, for example `python join-VidFetch-12345678.mp4.py`. It restores the original file only after its total size and SHA-256 match. It needs enough free space for the restored file as well as the downloaded parts. Unique names keep separate requests from mixing together.
+- There is no fixed total-download byte ceiling or four-hour duration rejection. Available disk space, site availability, network timeouts, and Colab runtime lifetime still apply. Downloads stop before exhausting the session's free disk space; individual downloads and lossless preparation have two-hour operation timeouts. Upload requests allow up to one hour per file.
 
-## Limits and behavior
+Cancellation or interrupted delivery can leave already-sent Telegram messages in the chat. A complete multi-part delivery ends with its joiner and a completion status; an incomplete set cannot be restored by the joiner. Send the link again to restart an interrupted job.
 
-- The standard Telegram Bot API allows new [video](https://core.telegram.org/bots/api#sendvideo) and [audio](https://core.telegram.org/bots/api#sendaudio) uploads up to 50 MB. This bot uses a conservative **49,000,000-byte** ceiling and **46,000,000-byte** encoding target. Sending as a document does not increase the limit. No local Bot API server is required.
-- Compression can lower resolution, frame rate, audio quality, and detail. It preserves the full clip and original audio when present. If a complete valid video cannot fit after bounded encoding attempts, the bot explains the failure rather than uploading an oversized or truncated file.
-- One request runs at a time, with at most five active/queued requests and one per user. Downloads have a 2 GB budget; media over four hours, playlists, and ongoing live streams are rejected. Extraction, downloading, and encoding have time limits. Temporary media is deleted after success, error, or cancellation.
-- Site support comes from yt-dlp. Network location, IP reputation, authentication requirements, DRM, and site changes can cause different results from the Android app. The Android-specific Python compatibility runtime is not used here. No cookies are imported, and raw extractor logs are not sent to Telegram.
-- Initial URLs must use HTTP(S), resolve to public IPs, and use standard web ports. This is a small personal bot, not a hardened public download service; extractor redirects and nested media requests are handled by yt-dlp.
-- Colab is a temporary interactive environment. The bot stops when the runtime stops, and old quality menus and unfinished jobs are not persisted. Google [restricts media serving unrelated to interactive compute](https://research.google.com/colaboratory/faq.html#limitations-and-restrictions); a notebook does not create an exception to those policies. No keepalive or limit-bypass mechanism is included.
-- Run only one copy of a bot token at a time. If another notebook or host is already polling that bot, stop it before restarting. Telegram may retain unreceived updates for up to 24 hours; stale quality buttons require resending the link.
+## Commands and access
 
-The Android app remains independent, uses local on-device processing, and does not connect to this bot.
+Commands: `/start`, `/help`, `/status`, `/cancel`, and `/id`. Cancellation stops active download/preparation subprocesses and cleans job files. Temporary media is removed after success, error, or cancellation; only one part is staged at a time while sending a large file.
+
+Menus belong to the requesting user, expire after 30 minutes, and are invalidated after use or when the user requests another link. One request runs at a time, with at most five active/queued requests and one per user. The optional `allowed_user_ids` field accepts comma-separated numeric Telegram IDs. Find yours with `/id`, stop the cell, set the field, and restart. A blank field allows anyone who discovers the bot to use it in private chats. Groups are not supported.
+
+The [bot profile picture](assets/vidfetch-bot-avatar.png) and its [generation prompt](assets/avatar-prompt.md) are included.
+
+## Other limits
+
+Site support comes from yt-dlp, with its EJS components, curl_cffi networking and Deno. Authentication requirements, DRM, IP reputation and site changes can prevent a download. No cookies are imported, and raw extractor logs are not sent to Telegram. Playlists and ongoing live streams are not supported. Initial links must use HTTP(S), resolve to public IPs and use standard web ports. Extractor redirects and nested media requests are handled by yt-dlp; this is a small personal bot rather than a hardened public download service.
+
+Colab is a temporary interactive environment: its runtime shutdown stops both programs. Google [restricts media serving unrelated to interactive compute](https://research.google.com/colaboratory/faq.html#limitations-and-restrictions); adding a local Telegram server does not create an exception. Use a persistent host for continuous operation. There is no keepalive or Colab-limit bypass mechanism. Unfinished jobs and old menus do not persist across runtime restarts.
+
+The native Android app remains independent and processes downloads on-device without connecting to this bot.
 
 ## Development and verification
 
-Python 3.11+ and FFmpeg/ffprobe with `libx264` are required. From `bot/`, install dependencies and run:
+Python 3.11+ and FFmpeg/ffprobe are required. From `bot/`:
 
 ```text
 python -m pip install --upgrade --pre -r requirements.txt
+python -m pip install ruff nbformat
 python -m unittest discover -s tests -v
+ruff check vidfetch_bot tests tools
 python tools/build_notebook.py --check
 ```
 
-For a local run, use `python -m vidfetch_bot`; it prompts for the token without echoing it. Optional environment variables are `TELEGRAM_BOT_TOKEN` and `VIDFETCH_ALLOWED_USERS`. Keep credentials outside Git and do not put them in shell commands that save history.
+To run on another host, install Telegram's official Bot API server and use `python -m vidfetch_bot`. It prompts for the same three credentials; optional environment variables are `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `VIDFETCH_API_BINARY`, and `VIDFETCH_ALLOWED_USERS`. Keep credentials outside Git and shell history.
 
-Canonical sources live in `vidfetch_bot/`. After editing them or `requirements.txt`, run `python tools/build_notebook.py` to regenerate the notebook. CI checks that the embedded code matches, validates notebook syntax, tests Telegram conversations through a fake transport, and exercises actual yt-dlp/FFmpeg against synthetic local media. Tests do not require a bot token or third-party video site.
+Canonical sources live in `vidfetch_bot/`. After edits, regenerate the self-contained notebook with `python tools/build_notebook.py`. The lower-level Python client still supports explicit hosted-API use for compatibility, including its old compression behavior; both user-facing entry points use the local server and preserve quality.
+
+CI validates notebook schema/bootstrap, source parity, conversations, both HTTP transports, cancellation, byte-exact splitting and reconstruction, original media packet preservation, and synthetic yt-dlp/FFmpeg downloads. A separate Linux job builds the pinned official server and checks loopback HTTP startup and shutdown without contacting a Telegram account. Tests do not need a real bot token. Live delivery still requires the user's credentials and a running session.

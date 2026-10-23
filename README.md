@@ -18,7 +18,7 @@ This APK is for most current Android phones (`arm64-v8a`). GitHub publishes it a
 
 ## Telegram companion
 
-The separate [Telegram bot](bot/README.md) runs from a self-contained Colab notebook. Enter a bot token, send a video link, choose a video quality or Audio only with an estimated file size, and receive the video or an M4A audio file in Telegram. Oversized files are automatically compressed to fit the upload limit. Colab sessions are temporary; see the bot documentation for setup and limits. The Android app continues to process downloads on-device independently.
+The separate [Telegram bot](bot/README.md) runs from a self-contained Colab notebook alongside Telegram's official local Bot API server. Enter a bot token plus Telegram application credentials, send a link, and choose a video quality or Audio only. Original quality is preserved without a 50 MB compression requirement; files above the conservative 1,950 MB per-file ceiling are delivered in numbered parts with a verified joiner. Colab sessions are temporary; see the bot documentation for setup and limits. The Android app continues to process downloads on-device independently.
 
 ## Repository layout
 

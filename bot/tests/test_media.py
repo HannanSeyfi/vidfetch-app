@@ -26,6 +26,17 @@ def fmt(identifier, *, height=None, video="h264", audio="none", size=None, bitra
 
 
 class QualityTests(unittest.TestCase):
+    def test_original_audio_estimate_uses_original_bytes_instead_of_aac_bitrate(self):
+        opus = fmt("a", video="none", audio="opus", size=10_000_000, bitrate=128)
+        self.assertEqual(media.estimate_audio_size(opus, 100, preserve_quality=True), 10_000_000)
+        self.assertIsNone(
+            media.estimate_audio_size(
+                fmt("combined", height=720, audio="opus", size=99_000_000),
+                100,
+                preserve_quality=True,
+            )
+        )
+
     def test_separate_audio_is_included_in_each_size(self):
         info = {
             "duration": 100,
@@ -152,6 +163,48 @@ class QualityTests(unittest.TestCase):
 
 
 class ProcessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_download_has_no_artificial_file_size_cap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            source.write_bytes(b"fixture")
+            with (
+                patch.object(media, "validate_url", AsyncMock()),
+                patch.object(
+                    media, "command", AsyncMock(return_value=json.dumps(str(source)))
+                ) as run,
+            ):
+                self.assertEqual(
+                    await media.download(
+                        "https://example.com/v", media.Quality(720, "v", None), source.parent
+                    ),
+                    source.resolve(),
+                )
+                self.assertNotIn("--max-filesize", run.call_args.args[0])
+
+    async def test_low_disk_space_still_stops_downloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("shutil.disk_usage", return_value=type("Disk", (), {"free": 1})()):
+                with self.assertRaisesRegex(media.MediaError, "disk space"):
+                    await media.command(
+                        [sys.executable, "-c", "pass"],
+                        timeout=1,
+                        folder=Path(directory),
+                        download_guard=True,
+                    )
+
+    async def test_incompatible_original_video_is_a_document_without_transcoding(self):
+        info = media.Probe(20, 1920, 1080, "vp9", "yuv420p", "opus")
+        source = Path("original.webm")
+        with (
+            patch.object(media, "probe", AsyncMock(return_value=info)),
+            patch.object(media, "command", AsyncMock()) as encode,
+        ):
+            prepared = await media.prepare_video(source, AsyncMock(), preserve_quality=True)
+            self.assertEqual(prepared.path, source)
+            self.assertTrue(prepared.document)
+            self.assertFalse(prepared.compressed)
+            encode.assert_not_awaited()
+
     async def test_cancel_also_stops_an_extractors_child_process(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

@@ -1,4 +1,4 @@
-"""Extraction, size estimates, and verified Telegram-compatible compression."""
+"""Extraction and media preparation, with lossless delivery through a local Bot API."""
 
 from __future__ import annotations
 
@@ -19,14 +19,20 @@ from urllib.parse import urlsplit
 
 UPLOAD_LIMIT = 49_000_000  # Below the cloud Bot API's 50 MB limit, in bytes.
 TARGET_BYTES = 46_000_000
-DOWNLOAD_LIMIT = 2_000_000_000
-MAX_DURATION = 4 * 60 * 60
+MIN_FREE_BYTES = 256_000_000
 AUDIO_BITRATE = 192_000
 Status = Callable[[str], Awaitable[None]]
 
 
 class MediaError(Exception):
     """A safe, actionable message that can be displayed in Telegram."""
+
+
+def check_disk(folder: Path) -> None:
+    if shutil.disk_usage(folder).free < MIN_FREE_BYTES:
+        raise MediaError(
+            "This session is running out of disk space. Try a smaller quality or restart."
+        )
 
 
 @dataclass(frozen=True)
@@ -38,14 +44,21 @@ class Quality:
 
     @property
     def label(self) -> str:
+        return self.label_for(UPLOAD_LIMIT, preserve_quality=False)
+
+    def label_for(self, limit: int, *, preserve_quality: bool) -> str:
         resolution = (
             "Audio only"
             if self.audio_only
             else (f"{self.height}p" if self.height else "Best available")
         )
         size = f"~{format_size(self.size)}" if self.size else "size unknown"
-        compress = " · compress" if self.size and self.size > UPLOAD_LIMIT else ""
-        return f"{resolution} · {size}{compress}"
+        marker = (
+            (" · split into files" if preserve_quality else " · compress")
+            if self.size and self.size > limit
+            else ""
+        )
+        return f"{resolution} · {size}{marker}"
 
 
 @dataclass(frozen=True)
@@ -72,6 +85,7 @@ class PreparedVideo:
     path: Path
     probe: Probe
     compressed: bool
+    document: bool = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +101,7 @@ class PreparedAudio:
     path: Path
     probe: AudioProbe
     compressed: bool
+    document: bool = False
 
 
 def number(value: object) -> float:
@@ -120,9 +135,16 @@ def audio_bitrate(source_bitrate: float) -> int:
     return min(AUDIO_BITRATE, max(32_000, int(source_bitrate))) if source_bitrate else AUDIO_BITRATE
 
 
-def estimate_audio_size(fmt: dict, duration: float) -> int | None:
+def estimate_audio_size(
+    fmt: dict, duration: float, *, preserve_quality: bool = False
+) -> int | None:
     """Estimate the delivered audio, never the full video used as a fallback source."""
     separate = fmt.get("vcodec") == "none"
+    if preserve_quality:
+        if separate:
+            return estimate_size(fmt, duration)
+        bitrate = number(fmt.get("abr"))
+        return math.ceil(duration * bitrate * 1000 / 8 * 1.02) if duration and bitrate else None
     if is_aac(fmt.get("acodec")) and separate:
         return estimate_size(fmt, duration)
     bitrate = number(fmt.get("abr")) or (number(fmt.get("tbr")) if separate else 0)
@@ -135,7 +157,7 @@ def estimate_audio_size(fmt: dict, duration: float) -> int | None:
     return math.ceil(duration * AUDIO_BITRATE / 8 * 1.02)
 
 
-def qualities_from_info(info: dict) -> tuple[Quality, ...]:
+def qualities_from_info(info: dict, *, preserve_quality: bool = False) -> tuple[Quality, ...]:
     """Ask yt-dlp to select formats so displayed sizes match the download selector."""
     from yt_dlp import YoutubeDL
 
@@ -192,7 +214,12 @@ def qualities_from_info(info: dict) -> tuple[Quality, ...]:
             identifier = str(audio.get("format_id", ""))
             if re.fullmatch(r"[\w.-]+", identifier, flags=re.ASCII):
                 result.append(
-                    Quality(None, identifier, estimate_audio_size(audio, duration), audio_only=True)
+                    Quality(
+                        None,
+                        identifier,
+                        estimate_audio_size(audio, duration, preserve_quality=preserve_quality),
+                        audio_only=True,
+                    )
                 )
     if not result:
         raise MediaError("No downloadable video or audio was found for this link.")
@@ -224,6 +251,8 @@ async def command(
     args: list[str], *, timeout: int, folder: Path, download_guard: bool = False
 ) -> str:
     """Cancel/timeout always reaps the child before the caller deletes its files."""
+    if download_guard:
+        check_disk(folder)
     log_path = folder / "process.stderr"
     with log_path.open("wb") as log:
         process = await asyncio.create_subprocess_exec(
@@ -235,17 +264,7 @@ async def command(
                 while not communicate.done():
                     await asyncio.wait({communicate}, timeout=1)
                     if download_guard:
-                        total = 0
-                        for path in folder.rglob("*"):
-                            try:
-                                if path.is_file():
-                                    total += path.stat().st_size
-                            except FileNotFoundError:
-                                pass  # yt-dlp removes intermediates when merging finishes.
-                        if total > DOWNLOAD_LIMIT or shutil.disk_usage(folder).free < 256_000_000:
-                            raise MediaError(
-                                "This download exceeds the session's 2 GB storage budget."
-                            )
+                        check_disk(folder)
                 output, _ = await communicate
         except TimeoutError:
             raise MediaError(
@@ -341,7 +360,7 @@ def extractor_args() -> list[str]:
     ]
 
 
-async def analyze(url: str, folder: Path) -> Analysis:
+async def analyze(url: str, folder: Path, *, preserve_quality: bool = False) -> Analysis:
     await validate_url(url)
     raw = await command(
         extractor_args() + ["--dump-single-json", "--skip-download", "--", url],
@@ -354,9 +373,10 @@ async def analyze(url: str, folder: Path) -> Analysis:
             raise MediaError("Send a single-video link rather than a playlist.")
         if info.get("is_live") or info.get("live_status") == "is_live":
             raise MediaError("Live streams are not supported. Send a finished video.")
-        if number(info.get("duration")) > MAX_DURATION:
-            raise MediaError("Choose a video shorter than four hours for this Colab session.")
-        return Analysis(str(info.get("title") or "Video")[:200], qualities_from_info(info))
+        return Analysis(
+            str(info.get("title") or "Video")[:200],
+            qualities_from_info(info, preserve_quality=preserve_quality),
+        )
     except (ValueError, TypeError, KeyError):
         raise MediaError("The site did not return usable video information.") from None
 
@@ -371,8 +391,6 @@ async def download(url: str, quality: Quality, folder: Path) -> Path:
             quality.selector,
             "--merge-output-format",
             "mkv",
-            "--max-filesize",
-            str(DOWNLOAD_LIMIT),
             "--output",
             str(folder / "source.%(ext)s"),
             "--print",
@@ -380,7 +398,7 @@ async def download(url: str, quality: Quality, folder: Path) -> Path:
             "--",
             url,
         ],
-        timeout=1800,
+        timeout=7200,
         folder=folder,
         download_guard=True,
     )
@@ -388,8 +406,6 @@ async def download(url: str, quality: Quality, folder: Path) -> Path:
         path = Path(json.loads(raw.splitlines()[-1])).resolve()
         if path.parent != folder.resolve() or not path.is_file() or not path.stat().st_size:
             raise ValueError
-        if path.stat().st_size > DOWNLOAD_LIMIT:
-            raise MediaError("This download exceeds the session's 2 GB storage budget.")
         return path
     except (ValueError, IndexError, TypeError):
         kind = "audio" if quality.audio_only else "video"
@@ -411,8 +427,6 @@ async def probe_audio(path: Path, *, audio_only: bool = False) -> AudioProbe:
         duration = number(audio.get("duration")) or number(info.get("format", {}).get("duration"))
         if not duration or not audio.get("codec_name"):
             raise ValueError
-        if duration > MAX_DURATION:
-            raise MediaError("Choose audio shorter than four hours for this Colab session.")
         return AudioProbe(
             duration, audio["codec_name"], int(number(audio.get("bit_rate"))), int(audio["index"])
         )
@@ -428,9 +442,45 @@ def check_audio_duration(original: AudioProbe, final: AudioProbe) -> None:
 
 
 async def prepare_audio(
-    source: Path, status: Status, *, limit: int = UPLOAD_LIMIT, target: int = TARGET_BYTES
+    source: Path,
+    status: Status,
+    *,
+    limit: int = UPLOAD_LIMIT,
+    target: int = TARGET_BYTES,
+    preserve_quality: bool = False,
 ) -> PreparedAudio:
     info = await probe_audio(source)
+    if preserve_quality:
+        extension = {"aac": ".m4a", "mp3": ".mp3"}.get(info.audio_codec, ".mka")
+        output = source.parent / ("VidFetch" + extension)
+        await status("Extracting the original audio without reducing quality…")
+        check_disk(source.parent)
+        await command(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-y",
+                "-i",
+                str(source),
+                "-map",
+                f"0:{info.audio_index}",
+                "-vn",
+                "-sn",
+                "-dn",
+                "-c:a",
+                "copy",
+                str(output),
+            ],
+            timeout=7200,
+            folder=source.parent,
+            download_guard=True,
+        )
+        final = await probe_audio(output, audio_only=True)
+        check_audio_duration(info, final)
+        return PreparedAudio(output, final, False, document=extension == ".mka")
     output = source.parent / "telegram.m4a"
     base = [
         "ffmpeg",
@@ -523,8 +573,6 @@ async def probe(path: Path) -> Probe:
         fps = number(fps_parts[0]) / (number(fps_parts[-1]) or 1)
         if not duration or width < 2 or height < 2:
             raise ValueError
-        if duration > MAX_DURATION:
-            raise MediaError("Choose a video shorter than four hours for this Colab session.")
         return Probe(
             duration,
             width,
@@ -564,9 +612,58 @@ def encoding_plan(info: Probe, target_bytes: int, attempt: int = 0) -> tuple[int
 
 
 async def prepare_video(
-    source: Path, status: Status, *, limit: int = UPLOAD_LIMIT, target: int = TARGET_BYTES
+    source: Path,
+    status: Status,
+    *,
+    limit: int = UPLOAD_LIMIT,
+    target: int = TARGET_BYTES,
+    preserve_quality: bool = False,
 ) -> PreparedVideo:
     info = await probe(source)
+    if preserve_quality:
+        # An original codec that cannot play inline is delivered as a document, not transcoded.
+        compatible = (
+            info.video_codec == "h264"
+            and info.pixel_format == "yuv420p"
+            and info.audio_codec in {None, "aac"}
+        )
+        if not compatible or source.suffix.lower() == ".mp4":
+            return PreparedVideo(source, info, False, document=not compatible)
+        output = source.parent / "VidFetch.mp4"
+        await status("Preparing the original video without reducing quality…")
+        check_disk(source.parent)
+        await command(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-y",
+                "-i",
+                str(source),
+                "-map",
+                f"0:{info.video_index}",
+                "-map",
+                "0:a:0?",
+                "-c",
+                "copy",
+                "-sn",
+                "-dn",
+                "-movflags",
+                "+faststart",
+                str(output),
+            ],
+            timeout=7200,
+            folder=source.parent,
+            download_guard=True,
+        )
+        final = await probe(output)
+        if abs(final.duration - info.duration) > max(2, info.duration * 0.01) or (
+            info.audio_codec and not final.audio_codec
+        ):
+            raise MediaError("The prepared video was incomplete. Try the original format again.")
+        return PreparedVideo(output, final, False)
     output = source.parent / "telegram.mp4"
     base = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(source)]
     if (

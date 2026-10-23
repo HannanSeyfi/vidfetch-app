@@ -66,7 +66,9 @@ def notebook() -> dict:
             if name == "vidfetch_bot" or name.startswith("vidfetch_bot."):
                 del sys.modules[name]
         importlib.invalidate_caches()
-        print("Setup complete. Run the next cell and enter your bot token in the hidden prompt.")
+        from vidfetch_bot.local_api import install_server
+        vidfetch_api_binary = install_server()
+        print("Setup complete. Run the next cell and enter the three Telegram credentials.")
     """)
     setup = setup.replace("+ REQUIREMENTS", "+ " + repr(requirements))
     setup = setup.replace(
@@ -77,8 +79,10 @@ def notebook() -> dict:
         # Optional: comma-separated numeric Telegram user IDs. Blank allows any private-chat user.
         allowed_user_ids = "" #@param {type:"string"}
 
-        from getpass import getpass
         from vidfetch_bot.app import run_bot
+        from vidfetch_bot.credentials import read_secret
+        from vidfetch_bot.local_api import LocalAPIError, local_bot_api
+        from vidfetch_bot.telegram import TelegramError
 
         async def start_vidfetch():
             try:
@@ -86,23 +90,46 @@ def notebook() -> dict:
             except ValueError:
                 print("Use numeric user IDs separated by commas, or leave the field blank.")
                 return
-            # Hidden input is never written into notebook source or cell outputs.
-            await run_bot(getpass("Bot token from @BotFather: ").strip(), allowed_users=allowed)
+            # Colab Secrets or hidden inputs keep credentials out of source and outputs.
+            token = read_secret("TELEGRAM_BOT_TOKEN", "Bot token from @BotFather: ")
+            api_id = read_secret("TELEGRAM_API_ID", "Telegram api_id from my.telegram.org: ")
+            api_hash = read_secret("TELEGRAM_API_HASH", "Telegram api_hash from my.telegram.org: ")
+            try:
+                async with local_bot_api(
+                    token, api_id, api_hash, binary=vidfetch_api_binary
+                ) as api:
+                    await run_bot(token, allowed_users=allowed, api=api)
+            except (LocalAPIError, TelegramError) as error:
+                print(str(error))
 
         await start_vidfetch()
     """)
     intro = textwrap.dedent("""\
         # VidFetch Telegram bot
 
-        **Run both cells, enter your bot token, then send your bot a video link in Telegram.**
+        **Original-quality video and audio, with large-file support. Everything runs in Colab.**
 
         1. Use a standard **CPU** runtime (no GPU required).
-        2. Select **Runtime → Run all**. Setup can take a few minutes.
-        3. Enter the token supplied by [@BotFather](https://t.me/BotFather) in the hidden prompt.
+        2. Obtain your bot token from [@BotFather](https://t.me/BotFather), plus your own
+           **api_id** and **api_hash** from [my.telegram.org/apps](https://my.telegram.org/apps).
+           These are Telegram application credentials, separate from your bot token.
+        3. Stop any older copy of this bot. Select **Runtime → Run all** and enter the
+           three credentials in the hidden prompts. The first setup builds Telegram's official
+           server and can take several minutes; rerunning setup reuses the completed build.
         4. Open the bot link printed below, send `/start`, then a video URL.
-        5. Choose a quality: buttons include estimated video + audio size. Large files are
-           automatically compressed below the Telegram upload limit.
-           Choose **Audio only** to receive just the audio as an M4A file in Telegram's audio player.
+        5. Choose a quality: buttons include estimated video + audio size.
+           Files are **not compressed to 50 MB**. Compatible videos play inline; other formats
+           arrive as original-quality documents. **Audio only** preserves the original audio codec.
+
+        Telegram allows up to **2,000 MB per file** with this server. Files exceeding our
+        conservative 1,950 MB ceiling are sent as numbered parts plus a Python joiner.
+        Download all parts and the joiner into one folder and run the joiner with Python 3.
+        It verifies the original size and SHA-256; parts do not play separately.
+
+        Optionally add `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_ID`, and `TELEGRAM_API_HASH`
+        in Colab's **Secrets** panel and grant this notebook access to avoid retyping them.
+        Do not paste credentials into code cells. The API server runs only on Colab's loopback
+        interface; no public URL, tunnel, home computer server, or GPU is needed.
 
         Keep the second cell running. Its stop button shuts the bot down; rerun it to restart.
         Colab sessions are temporary and subject to [Colab's limits and policies](https://research.google.com/colaboratory/faq.html).
@@ -114,7 +141,8 @@ def notebook() -> dict:
         Leave the field blank to accept private messages from anyone who finds your bot.
         Use `/cancel` to stop your request and `/status` to check it.
 
-        Sizes are estimates. Compression can reduce resolution, frame rate, and detail.
+        Sizes are estimates. Available disk space, network timeouts and runtime lifetime still apply.
+        Downloads and Telegram uploads use Colab's connection, not your home upload bandwidth.
         Some sites block Colab IP addresses or require sign-in. This notebook does not import cookies.
         Download only content you are permitted to download.
 
