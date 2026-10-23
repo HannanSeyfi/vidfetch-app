@@ -61,7 +61,8 @@ class DownloadService : Service() {
                 val output = File(working, "%(title).180B.%(ext)s").absolutePath
                 var lastProgress = -1
                 val requestedHeight = intent!!.getIntExtra(EXTRA_HEIGHT, 0).takeIf { it > 0 }
-                val result = YtDlpRepositoryImpl(applicationContext).download(url, requestedHeight, output) { value ->
+                val audioOnly = intent.getBooleanExtra(EXTRA_AUDIO_ONLY, false)
+                val result = YtDlpRepositoryImpl(applicationContext).download(url, requestedHeight, output, audioOnly) { value ->
                     val next = value.coerceIn(0, 99)
                     if (next != lastProgress) {
                         lastProgress = next
@@ -71,7 +72,7 @@ class DownloadService : Service() {
                 }
                 DownloadState.advanced(99)
                 media.publish(result.file)
-                val quality = if (requestedHeight != null && result.height != null && result.height != requestedHeight) " · Downloaded ${result.height}p (requested ${requestedHeight}p)" else ""
+                val quality = if (audioOnly) " · Audio only" else if (requestedHeight != null && result.height != null && result.height != requestedHeight) " · Downloaded ${result.height}p (requested ${requestedHeight}p)" else ""
                 DownloadState.finished("Saved to Downloads/VidFetch$quality")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 notifier.complete(title)
@@ -101,5 +102,6 @@ class DownloadService : Service() {
         const val EXTRA_URL = "download_url"
         const val EXTRA_TITLE = "download_title"
         const val EXTRA_HEIGHT = "download_height"
+        const val EXTRA_AUDIO_ONLY = "download_audio_only"
     }
 }

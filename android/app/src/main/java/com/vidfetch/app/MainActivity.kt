@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -109,14 +110,14 @@ import com.vidfetch.app.service.DownloadState
 import java.util.regex.Pattern
 
 class MainActivity : ComponentActivity() {
-    private data class PendingDownload(val url: String, val title: String, val height: Int?)
+    private data class PendingDownload(val url: String, val title: String, val quality: VideoQuality)
     private var pendingDownload: PendingDownload? = null
     private val sharedLink = mutableStateOf("")
     private val storagePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val pending = pendingDownload
         pendingDownload = null
         if (granted && pending != null) startDownload(pending)
-        else if (!granted) Toast.makeText(this, "Storage access is needed to save videos on this Android version.", Toast.LENGTH_LONG).show()
+        else if (!granted) Toast.makeText(this, "Storage access is needed to save downloads on this Android version.", Toast.LENGTH_LONG).show()
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -137,9 +138,9 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this)[VidFetchViewModel::class.java].refreshDownloads()
     }
 
-    private fun beginDownload(video: VideoInfo, height: Int?) {
+    private fun beginDownload(video: VideoInfo, quality: VideoQuality) {
         if (DownloadState.progress.value.active) return
-        val pending = PendingDownload(video.webpageUrl, video.title, height)
+        val pending = PendingDownload(video.webpageUrl, video.title, quality)
         if (Build.VERSION.SDK_INT <= 28 && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             pendingDownload = pending
             storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -153,7 +154,8 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(this, DownloadService::class.java)
             .putExtra(DownloadService.EXTRA_URL, download.url)
             .putExtra(DownloadService.EXTRA_TITLE, download.title)
-            .putExtra(DownloadService.EXTRA_HEIGHT, download.height ?: 0)
+            .putExtra(DownloadService.EXTRA_HEIGHT, download.quality.height ?: 0)
+            .putExtra(DownloadService.EXTRA_AUDIO_ONLY, download.quality.audioOnly)
         try {
             ContextCompat.startForegroundService(this, intent)
         } catch (error: Exception) {
@@ -170,7 +172,7 @@ class MainActivity : ComponentActivity() {
     companion object { private val URL = Pattern.compile("https?://[^\\s]+") }
 }
 
-@Composable private fun VidFetchApp(sharedUrl: String, startDownload: (VideoInfo, Int?) -> Unit) {
+@Composable private fun VidFetchApp(sharedUrl: String, startDownload: (VideoInfo, VideoQuality) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("vidfetch_settings", 0) }
     val systemDark = isSystemInDarkTheme()
@@ -223,13 +225,13 @@ class MainActivity : ComponentActivity() {
     setUrl: (String) -> Unit,
     select: (VideoQuality) -> Unit,
     analyze: () -> Unit,
-    download: (VideoInfo, Int?) -> Unit,
+    download: (VideoInfo, VideoQuality) -> Unit,
 ) {
     val context = LocalContext.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column {
             Text("VidFetch", style = MaterialTheme.typography.headlineLarge)
-            Text("Save videos to your device", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Save videos and audio to your device", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         OutlinedTextField(
             value = state.url,
@@ -275,10 +277,10 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    Button(onClick = { download(video, state.selected?.height) }, enabled = !progress.active && !state.analyzing && !state.updating && !state.importingCookies, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Button(onClick = { state.selected?.let { download(video, it) } }, enabled = state.selected != null && !progress.active && !state.analyzing && !state.updating && !state.importingCookies, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         Icon(Icons.Default.Download, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
-                        Text("Download video")
+                        Text(if (state.selected?.audioOnly == true) "Download audio" else "Download video")
                     }
                 }
             }
@@ -315,8 +317,8 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 29 && !state.downloadsFolderConnected) item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Show all videos in this folder", style = MaterialTheme.typography.titleMedium)
-                    Text("Allow access to Downloads/VidFetch to include videos moved into the folder.")
+                    Text("Show all media in this folder", style = MaterialTheme.typography.titleMedium)
+                    Text("Allow access to Downloads/VidFetch to include videos and audio moved into the folder.")
                     OutlinedButton(onClick = connectFolder) { Text("Allow folder access") }
                 }
             }
@@ -326,14 +328,18 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(40.dp))
                     Text("No downloads yet", style = MaterialTheme.typography.titleMedium)
-                    Text("Your saved videos will appear here.")
+                    Text("Your saved videos and audio will appear here.")
                 }
             }
         }
         items(state.downloads, key = { it.id }) { item ->
             Card(Modifier.fillMaxWidth().clickable { open(item) }) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    VideoThumbnail(item)
+                    if (item.isAudio) {
+                        Box(Modifier.size(width = 112.dp, height = 68.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.MusicNote, contentDescription = "Audio file")
+                        }
+                    } else VideoThumbnail(item)
                     Column(Modifier.padding(start = 12.dp).weight(1f)) {
                         Text(item.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(item.size, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -352,12 +358,12 @@ class MainActivity : ComponentActivity() {
         }
     }
     renameItem?.let { item ->
-        AlertDialog(onDismissRequest = { renameItem = null }, title = { Text("Rename video") }, text = {
+        AlertDialog(onDismissRequest = { renameItem = null }, title = { Text("Rename file") }, text = {
             OutlinedTextField(value = renameText, onValueChange = { renameText = it }, label = { Text("File name") }, singleLine = true)
         }, confirmButton = { TextButton(onClick = { rename(item, renameText); renameItem = null }, enabled = renameText.isNotBlank()) { Text("Save") } }, dismissButton = { TextButton(onClick = { renameItem = null }) { Text("Cancel") } })
     }
     deleteItem?.let { item ->
-        AlertDialog(onDismissRequest = { deleteItem = null }, title = { Text("Delete video?") }, text = { Text(item.title) }, confirmButton = {
+        AlertDialog(onDismissRequest = { deleteItem = null }, title = { Text("Delete file?") }, text = { Text(item.title) }, confirmButton = {
             TextButton(onClick = { delete(item); deleteItem = null }) { Text("Delete") }
         }, dismissButton = { TextButton(onClick = { deleteItem = null }) { Text("Cancel") } })
     }
@@ -453,7 +459,7 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Storage", style = MaterialTheme.typography.titleMedium)
-            Text("Completed videos are saved in Downloads/VidFetch. Downloads in progress use temporary app storage.")
+            Text("Completed videos and audio are saved in Downloads/VidFetch. Downloads in progress use temporary app storage.")
         }
         HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
