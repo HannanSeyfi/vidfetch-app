@@ -115,7 +115,7 @@ def notebook() -> dict:
            These are Telegram application credentials, separate from your bot token.
         3. Stop any older copy of this bot. Select **Runtime → Run all** and enter the
            three credentials in the hidden prompts. The first setup builds Telegram's official
-           server and can take several minutes; rerunning setup reuses the completed build.
+           server and can take 15 minutes or longer; rerunning setup reuses the completed build.
         4. Open the bot link printed below, send `/start`, then a video URL.
         5. Choose a quality: buttons include estimated video + audio size.
            Files are **not compressed to 50 MB**. Compatible videos play inline; other formats

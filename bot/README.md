@@ -12,7 +12,7 @@ VidFetch downloads video and audio in Colab and delivers the selected quality th
 4. Enter all three credentials in the hidden prompts. Alternatively, create Colab Secrets named `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_ID`, and `TELEGRAM_API_HASH` and grant this notebook access. Never paste credentials into code cells.
 5. Open the printed bot link, send `/start`, and send a public video URL.
 
-The first setup compiles pinned official [telegram-bot-api](https://github.com/tdlib/telegram-bot-api) sources and can take several minutes. It reuses a completed build in the same runtime. The server listens only on `127.0.0.1` at a dynamically allocated port, with `--local` enabled. No third-party API gateway or prebuilt server binary is used.
+The first setup compiles pinned official [telegram-bot-api](https://github.com/tdlib/telegram-bot-api) sources and can take **15 minutes or longer**. It reuses a completed build in the same runtime. The server listens only on `127.0.0.1` at a dynamically allocated port, with `--local` enabled. No third-party API gateway or prebuilt server binary is used.
 
 The first start deregisters this bot from `api.telegram.org` with `logOut`, then routes **all** bot requests to the local server. Telegram prevents returning to the hosted API for ten minutes after that migration. Stopping and rerunning the bot cell reuses the runtime's server data and migration marker. Run only one instance of a bot at a time. If changing to another machine, stop the old instance first; use Telegram's [local-server migration procedure](https://github.com/tdlib/telegram-bot-api#moving-a-bot-from-one-local-server-to-another) when preserving pending updates matters.
 

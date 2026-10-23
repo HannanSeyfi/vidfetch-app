@@ -89,7 +89,10 @@ def install_server(cache: Path | None = None) -> Path:
             ["cmake", "--build", str(root / "build"), "--target", "install", "--parallel", "2"],
         ]
     )
-    print("Installing Telegram's official API server. The first build can take several minutes.")
+    print(
+        "Building Telegram's official API server. First setup can take 15 minutes or longer; "
+        "completed builds are reused within this runtime."
+    )
     for args in steps:
         subprocess.run(args, check=True)
     if not binary.is_file():
