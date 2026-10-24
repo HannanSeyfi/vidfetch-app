@@ -18,7 +18,7 @@ Quality choices include formats with a known resolution even when the video code
 
 The existing Update extractor button downloads an official nightly, verifies its SHA-256 checksum and version, and installs it atomically. Upgrading the app replaces an older bundled extractor while retaining a newer installed nightly.
 
-Reddit first uses the current Python 3.14/curl_cffi runtime with Chrome impersonation. Eligible session/403 failures try the Python 3.12 compatibility runtime with Chrome, then the current runtime's default request profile, with at most three attempts. The exact Reddit API rejection message also triggers fallback. RedGIFs retains compatibility-first/current-second behavior. Cancellation, HTTP 429, inaccessible private communities and unrelated failures are not retried. Both runtimes use the same updated yt-dlp. Site downloads restart partial files between attempts. Browser profiles and cookies cannot guarantee access when a website rejects the session or network. See runtime/README.md for runtime provenance.
+Reddit first uses the current Python 3.14/curl_cffi runtime with Chrome impersonation. Eligible session/403 failures try the Python 3.12 compatibility runtime with its default networking profile, then the current runtime's default request profile, with at most three attempts. The exact Reddit API rejection message also triggers fallback. RedGIFs retains compatibility-first/current-second behavior. Cancellation, HTTP 429, inaccessible private communities and unrelated failures are not retried. Both runtimes use the same updated yt-dlp. Site downloads restart partial files between attempts. Browser profiles and cookies cannot guarantee access when a website rejects the session or network. See runtime/README.md for runtime provenance.
 
 ## Optional site cookies
 
@@ -69,4 +69,4 @@ Website support and availability can change. Regional restrictions, authenticati
 
 Downloads do not resume after a force-stop, reboot or process termination. Folder access must be granted again after reinstalling or revoking its system permission.
 
-0.3.8 adds cookie alias/expiry checks, request-profile and bounded retry tests, distinct session/rate-limit errors, and on-device checks that both runtimes expose Chrome impersonation. Live verification still depends on the actual phone/network and user-provided sessions.
+0.3.8 adds cookie alias/expiry checks, request-profile and bounded retry tests, distinct session/rate-limit errors, and on-device checks that the current runtime supports Chrome impersonation and the compatibility runtime retains its supported default profile. Live verification still depends on the actual phone/network and user-provided sessions.

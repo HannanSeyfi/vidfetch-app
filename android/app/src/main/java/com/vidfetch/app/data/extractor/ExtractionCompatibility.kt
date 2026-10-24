@@ -12,7 +12,7 @@ internal data class ExtractionAttempt(val backend: ExtractorBackend, val chrome:
 internal fun extractionAttempts(url: String): List<ExtractionAttempt> = when {
     siteForUrl(url) == "reddit.com" -> listOf(
         ExtractionAttempt(ExtractorBackend.CURRENT, chrome = true),
-        ExtractionAttempt(ExtractorBackend.COMPATIBILITY, chrome = true),
+        ExtractionAttempt(ExtractorBackend.COMPATIBILITY),
         ExtractionAttempt(ExtractorBackend.CURRENT),
     )
     supportsCompatibility(url) -> listOf(ExtractionAttempt(ExtractorBackend.COMPATIBILITY), ExtractionAttempt(ExtractorBackend.CURRENT))
@@ -21,7 +21,7 @@ internal fun extractionAttempts(url: String): List<ExtractionAttempt> = when {
 
 internal fun retryableSiteRejection(detail: String): Boolean {
     val value = detail.lowercase()
-    if (listOf("429", "private subreddit", "quarantined", "not available", "removed", "deleted").any { it in value }) return false
+    if (listOf("429", "private subreddit", "quarantined", "removed", "deleted").any { it in value }) return false
     return listOf("http error 403", "http 403", "forbidden", "account authentication is required",
         "unable to access the reddit api", "impersonate target", "impersonation target").any { it in value }
 }

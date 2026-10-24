@@ -112,17 +112,17 @@ class ExtractorRuntimeTest {
             ExtractorInstrumentationRunner.active.context.assets.open("compatibility_check.py").use { input -> script.outputStream().use { input.copyTo(it) } }
             FixtureServer(folder).use { server ->
                 val config = File(folder, "cli.json")
-                suspend fun cli(arguments: List<String>, warning: Boolean = false, failure: Boolean = false): String {
+                suspend fun cli(arguments: List<String>, warning: Boolean = false, failure: Boolean = false, executionBackend: ExtractorBackend = backend): String {
                     config.writeText(JSONObject().put("arguments", JSONArray(arguments)).put("warning", warning).put("failure", failure).toString())
                     return ExtractorRuntime.python(context, listOf(script.absolutePath, ExtractorRuntime.engineFile(context).absolutePath,
-                        native, "http://127.0.0.1:${server.port}", folder.absolutePath, BuildConfig.BUNDLED_YTDLP_VERSION, config.absolutePath), backend)
+                        native, "http://127.0.0.1:${server.port}", folder.absolutePath, BuildConfig.BUNDLED_YTDLP_VERSION, config.absolutePath), executionBackend)
                 }
                 for ((label, url) in listOf("reddit" to "https://www.reddit.com/r/videos/s/synthetic", "redgifs" to "https://www.redgifs.com/watch/syntheticclip")) {
                     assertNull(SiteCookieStore(context).snapshotFor(url))
-                    val info = repository.parseVideoInfo(cli(repository.analysisArguments(null, url), warning = true))
+                    val info = repository.parseVideoInfo(cli(repository.analysisArguments(null, url, chrome = false), warning = true))
                     assertEquals(listOf(null, 240), qualities(info.formats).filterNot { it.audioOnly }.map { it.height })
                     val destination = File(folder, "$label.mp4")
-                    val output = cli(repository.downloadArguments(null, url, 360, destination.absolutePath))
+                    val output = cli(repository.downloadArguments(null, url, 360, destination.absolutePath, chrome = false))
                     assertTrue(output.contains("VIDFETCH_HEIGHT:240"))
                     val completed = repository.completedDownload(output, destination.absolutePath)
                     assertEquals(240, completed.height)
@@ -134,7 +134,7 @@ class ExtractorRuntimeTest {
                     """.trimIndent()), backend)
                     assertTrue(probe.contains("video") && probe.contains("audio"))
                     val audioTemplate = File(folder, "$label-audio.%(ext)s").absolutePath
-                    val audioOutput = cli(repository.downloadArguments(null, url, null, audioTemplate, audioOnly = true))
+                    val audioOutput = cli(repository.downloadArguments(null, url, null, audioTemplate, audioOnly = true, chrome = false))
                     val audio = repository.completedDownload(audioOutput, audioTemplate, audioOnly = true)
                     assertEquals("m4a", audio.file.extension)
                     assertNull(audio.height)
@@ -142,7 +142,13 @@ class ExtractorRuntimeTest {
                     assertTrue(audioProbe.contains("audio"))
                     assertFalse(audioProbe.contains("video"))
                 }
-                val failure = runCatching { cli(repository.analysisArguments(null, "https://www.reddit.com/r/videos/s/synthetic"), warning = true, failure = true) }.exceptionOrNull()
+                val redditUrl = "https://www.reddit.com/r/videos/s/synthetic"
+                val chromeInfo = repository.parseVideoInfo(cli(repository.analysisArguments(null, redditUrl, chrome = true), executionBackend = ExtractorBackend.CURRENT))
+                assertTrue(chromeInfo.formats.isNotEmpty())
+                val chromeOutput = File(folder, "reddit-chrome.mp4")
+                val chromeResult = cli(repository.downloadArguments(null, redditUrl, 360, chromeOutput.absolutePath, chrome = true), executionBackend = ExtractorBackend.CURRENT)
+                assertEquals(240, repository.completedDownload(chromeResult, chromeOutput.absolutePath).height)
+                val failure = runCatching { cli(repository.analysisArguments(null, redditUrl, chrome = false), warning = true, failure = true) }.exceptionOrNull()
                 assertNotNull(failure)
                 assertTrue(failure!!.message.orEmpty().contains("Private subreddit"))
                 assertFalse(failure.message.orEmpty().contains("older than 90 days"))
@@ -259,7 +265,7 @@ class ExtractorRuntimeTest {
         assertNull(store.snapshotFor("https://$host/video"))
     }
 
-    @Test fun redditAliasesReceiveScopedCookiesAndBothRuntimesSupportChrome() = runBlocking {
+    @Test fun redditAliasesReceiveScopedCookiesAndCurrentRuntimeSupportsChrome() = runBlocking {
         val store = SiteCookieStore(context)
         val repository = YtDlpRepositoryImpl(context)
         try {
@@ -273,10 +279,15 @@ class ExtractorRuntimeTest {
                 } finally { snapshot.delete() }
             }
             assertNull(store.snapshotFor("https://reddit.com.attacker.example/video"))
-            for (backend in ExtractorBackend.entries) {
-                val targets = ExtractorRuntime.run(context, listOf("--list-impersonate-targets"), backend = backend)
-                assertTrue(targets.lowercase().contains("chrome"))
-            }
+            val capability = ExtractorRuntime.python(context, listOf("-c", """
+                import sys
+                sys.path.insert(0, '${ExtractorRuntime.engineFile(context).absolutePath}')
+                from yt_dlp import YoutubeDL
+                from yt_dlp.networking.impersonate import ImpersonateTarget
+                with YoutubeDL({'quiet': True, 'impersonate': ImpersonateTarget.from_str('chrome')}):
+                    print('VIDFETCH_CHROME_OK')
+            """.trimIndent()))
+            assertTrue(capability.contains("VIDFETCH_CHROME_OK"))
         } finally { store.delete("reddit.com") }
     }
 

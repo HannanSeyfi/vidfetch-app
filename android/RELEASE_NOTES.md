@@ -2,7 +2,7 @@ VidFetch 0.3.8 improves Reddit extraction and site cookie handling.
 
 - Updates bundled yt-dlp to official nightly 2026.10.23.233055, verified by SHA-256.
 - Uses reddit.com cookies for Reddit short links and media aliases before redirects, while preserving cookie domain isolation.
-- Tries Reddit with Chrome impersonation on the current runtime, then the compatibility runtime, then a default current-runtime request. Retries are bounded; cancellation, rate limits and inaccessible private communities stop immediately.
+- Tries Reddit with Chrome impersonation on the current runtime, then the compatibility runtime's default profile, then a default current-runtime request. Retries are bounded; cancellation, rate limits and inaccessible private communities stop immediately.
 - Discards expired cookie entries and shows unexpired cookie counts and sign-in cookie presence in Settings. Enabled cookies do not guarantee that a website accepts the session.
 - Gives specific guidance for Reddit session rejection, YouTube verification and HTTP 429.
 - Retains audio-only M4A downloads, video quality selection, Downloads folder access, media validation and existing FFmpeg isolation fixes.

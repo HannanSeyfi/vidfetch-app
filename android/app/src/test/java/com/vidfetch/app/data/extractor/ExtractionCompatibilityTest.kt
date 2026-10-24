@@ -6,14 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ExtractionCompatibilityTest {
-    @Test fun redditTriesChromeOnBothRuntimesThenDefaultAndPreservesLastFailure() = runBlocking {
+    @Test fun missingBrowserTargetCanReachTheDefaultProfile() {
+        assertTrue(retryableSiteRejection("Impersonate target 'chrome' is not available"))
+        assertFalse(retryableSiteRejection("Requested format is not available"))
+    }
+    @Test fun redditTriesChromeThenSupportedFallbacksAndPreservesLastFailure() = runBlocking {
         for (url in listOf("https://www.reddit.com/comments/example", "https://redd.it/example", "https://v.redd.it/example")) {
             val attempts = mutableListOf<ExtractionAttempt>()
             val result = runCatching { extractWithCompatibility(url) {
                 attempts += it
-                error(if (it.chrome) "Your IP address is unable to access the Reddit API" else "HTTP Error 403: final failure")
+                error(if (attempts.size < 3) "Your IP address is unable to access the Reddit API" else "HTTP Error 403: final failure")
             } }
-            assertEquals(listOf(ExtractionAttempt(ExtractorBackend.CURRENT, true), ExtractionAttempt(ExtractorBackend.COMPATIBILITY, true), ExtractionAttempt(ExtractorBackend.CURRENT)), attempts)
+            assertEquals(listOf(ExtractionAttempt(ExtractorBackend.CURRENT, true), ExtractionAttempt(ExtractorBackend.COMPATIBILITY), ExtractionAttempt(ExtractorBackend.CURRENT)), attempts)
             assertEquals("HTTP Error 403: final failure", result.exceptionOrNull()?.message)
         }
     }
