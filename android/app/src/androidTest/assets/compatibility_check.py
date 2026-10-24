@@ -48,7 +48,7 @@ class FixtureYoutubeDL(yt_dlp.YoutubeDL):
         elif parsed.hostname == 'old.reddit.com':
             path = '/session.html'
         elif parsed.hostname == 'v.redd.it':
-            path = '/source.m3u8' if parsed.path.endswith('HLSPlaylist.m3u8') else '/' + parsed.path.rsplit('/', 1)[-1]
+            path = '/public-master.m3u8' if parsed.path.endswith('HLSPlaylist.m3u8') else '/' + parsed.path.rsplit('/', 1)[-1]
         elif parsed.hostname == 'api.redgifs.com':
             path = '/redgifs-auth.json' if parsed.path.endswith('/auth/temporary') else '/redgifs.json'
             if path == '/redgifs.json':
@@ -76,6 +76,8 @@ if cli_file:
         with open(os.path.join(folder, 'reddit.json'), 'w') as stream:
             json.dump({'error': 403, 'reason': 'private'}, stream)
     if cli.get('public_fallback'):
+        with open(os.path.join(folder, 'public-master.m3u8'), 'w') as stream:
+            stream.write('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=150000,RESOLUTION=320x240,CODECS="avc1.42e01e,mp4a.40.2"\nsource.m3u8\n')
         with open(os.path.join(folder, 'reddit.json'), 'w') as stream:
             json.dump({'error': 403}, stream)
         with open(os.path.join(folder, 'share.html'), 'w') as stream:
