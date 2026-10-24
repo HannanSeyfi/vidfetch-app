@@ -151,8 +151,15 @@ internal object ExtractorRuntime {
         val hook = File(startup, "sitecustomize.install")
         context.resources.openRawResource(R.raw.sitecustomize).use { input -> hook.outputStream().use { input.copyTo(it) } }
         replace(hook, File(startup, "sitecustomize.py"))
+        val plugin = File(pluginDirectory(context), "vidfetch/yt_dlp_plugins/extractor/reddit_public.py")
+        plugin.parentFile!!.mkdirs()
+        val pluginInstall = File(plugin.parentFile, "reddit_public.install")
+        context.resources.openRawResource(R.raw.reddit_public).use { input -> pluginInstall.outputStream().use { input.copyTo(it) } }
+        replace(pluginInstall, plugin)
         initialized = true
     }
+
+    internal fun pluginDirectory(context: Context) = File(root(context), "startup/plugins")
 
     private fun unpack(archive: File, destination: File) {
         destination.deleteRecursively()

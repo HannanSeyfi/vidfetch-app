@@ -411,6 +411,10 @@ async def extract(
     download_guard: bool = False,
 ) -> str:
     reddit = site_for_url(url) == "reddit.com"
+    plugins = folder / "extractor-plugins"
+    plugin = plugins / "vidfetch" / "yt_dlp_plugins" / "extractor" / "reddit_public.py"
+    plugin.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(Path(__file__).with_name("reddit_public.py"), plugin)
     for chrome in (True, False) if reddit else (False,):
         context = cookie_store.snapshot_for(url, folder) if cookie_store else nullcontext(None)
         try:
@@ -420,6 +424,7 @@ async def extract(
                 )
                 return await command(
                     extractor_args(cookie=cookie, chrome=chrome)
+                    + ["--plugin-dirs", str(plugins)]
                     + restart
                     + arguments
                     + ["--", url],

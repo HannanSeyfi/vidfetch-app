@@ -1,6 +1,6 @@
 # VidFetch for Android
 
-Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.8 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
+Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.9 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
 
 ## Multi-site extraction
 
@@ -17,6 +17,8 @@ Quality choices include formats with a known resolution even when the video code
 **Audio only · M4A** appears alongside video qualities when the link has a format that may contain audio. Formats explicitly marked silent do not enable it; direct MP4 formats with unspecified audio metadata remain eligible. Audio links offer audio without a video choice. The download service prefers the best separate audio stream, falling back to a combined stream, then uses local FFmpeg to extract M4A (AAC). AAC can be copied without re-encoding; other codecs are converted with yt-dlp's highest VBR quality setting. Audio output size is left unknown because conversion can change it. No video resolution or YouTube MP4 remux options apply to audio downloads. Final ffprobe validation requires an audio stream and rejects remaining video before publishing the completed file.
 
 The existing Update extractor button downloads an official nightly, verifies its SHA-256 checksum and version, and installs it atomically. Upgrading the app replaces an older bundled extractor while retaining a newer installed nightly.
+
+A bundled yt-dlp plugin first retains normal Reddit extraction. When the JSON endpoint rejects a request, it can read the requested post's own native video player from the accessible public HTML page and extract its HLS/DASH formats, preserving audio and subtitles. It rejects unrelated players and comment GIFs, retains private/quarantined-community and rate-limit errors, and does not use a remote download service. The plugin is installed from the APK in private storage on process startup.
 
 Reddit first uses the current Python 3.14/curl_cffi runtime with Chrome impersonation. Eligible session/403 failures try the Python 3.12 compatibility runtime with its default networking profile, then the current runtime's default request profile, with at most three attempts. The exact Reddit API rejection message also triggers fallback. RedGIFs retains compatibility-first/current-second behavior. Cancellation, HTTP 429, inaccessible private communities and unrelated failures are not retried. Both runtimes use the same updated yt-dlp. Site downloads restart partial files between attempts. Browser profiles and cookies cannot guarantee access when a website rejects the session or network. See runtime/README.md for runtime provenance.
 
@@ -69,4 +71,4 @@ Website support and availability can change. Regional restrictions, authenticati
 
 Downloads do not resume after a force-stop, reboot or process termination. Folder access must be granted again after reinstalling or revoking its system permission.
 
-0.3.8 adds cookie alias/expiry checks, request-profile and bounded retry tests, distinct session/rate-limit errors, and on-device checks that the current runtime supports Chrome impersonation and the compatibility runtime retains its supported default profile. Live verification still depends on the actual phone/network and user-provided sessions.
+0.3.9 adds cookie alias/expiry checks, request-profile and bounded retry tests, distinct session/rate-limit errors, and on-device checks that the current runtime supports Chrome impersonation and the compatibility runtime retains its supported default profile. Live verification still depends on the actual phone/network and user-provided sessions.

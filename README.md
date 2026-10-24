@@ -4,9 +4,9 @@ VidFetch is a privacy-minded, local-first video and audio downloader for content
 
 ## Download for Android
 
-[**Download the latest Android APK**](https://github.com/HannanSeyfi/vidfetch-app/releases/latest/download/VidFetch_v8a_0.3.8.apk)
+[**Download the latest Android APK**](https://github.com/HannanSeyfi/vidfetch-app/releases/latest/download/VidFetch_v8a_0.3.9.apk)
 
-This APK is for most current Android phones (`arm64-v8a`). Version 0.3.8 updates the bundled extractor, fixes Reddit cookie selection for short links, adds Reddit browser request profiles and clearer session/rate-limit errors, and shows cookie expiry/sign-in status. Existing video/audio downloads and storage fixes are retained. A 32-bit ARM APK is also available on the release page. Android may ask you to allow installation from your browser or file manager.
+This APK is for most current Android phones (`arm64-v8a`). Version 0.3.9 adds a fallback for public Reddit videos whose JSON endpoint returns HTTP 403, updates the bundled extractor, fixes Reddit cookie selection for short links, adds Reddit browser request profiles and clearer session/rate-limit errors, and shows cookie expiry/sign-in status. Existing video/audio downloads and storage fixes are retained. A 32-bit ARM APK is also available on the release page. Android may ask you to allow installation from your browser or file manager.
 
 ## Platforms
 
