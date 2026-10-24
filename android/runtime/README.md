@@ -4,7 +4,7 @@ The build generates native libraries and the yt-dlp resource from runtime-lock.j
 
 ## Sources
 
-* yt-dlp 2026.10.10.233141: https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/2026.10.10.233141
+* yt-dlp 2026.10.23.233055: https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/2026.10.23.233055
 * Native runtime revision: https://github.com/hussain-najeb/youtubedl-android/tree/35f2609d80ce26b6683a0b2b6bc52f32efe4c81c
 * Upstream contribution and validation notes: https://github.com/yausername/youtubedl-android/pull/361
 * Python/runtime packaging scripts: library/build-python-bundle-arm64.sh, library/build-python-bundle-armv7.sh and library/build-python-bundle-x86.sh at that revision.

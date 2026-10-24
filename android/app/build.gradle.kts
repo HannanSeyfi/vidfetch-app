@@ -67,10 +67,10 @@ android {
         applicationId = "com.vidfetch.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.3.7"
+        versionCode = 19
+        versionName = "0.3.8"
         buildConfigField("String", "COMPATIBILITY_RUNTIME_COMMIT", "\"d725d5c9a18c3a99a13ee0308bf78275dc310760\"")
-        buildConfigField("String", "BUNDLED_YTDLP_VERSION", "\"2026.10.10.233141\"")
+        buildConfigField("String", "BUNDLED_YTDLP_VERSION", "\"2026.10.23.233055\"")
         buildConfigField("String", "RUNTIME_COMMIT", "\"35f2609d80ce26b6683a0b2b6bc52f32efe4c81c\"")
         testInstrumentationRunner = "com.vidfetch.app.data.extractor.ExtractorInstrumentationRunner"
     }

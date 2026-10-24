@@ -208,8 +208,11 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
 internal fun friendlyError(error: Exception): String {
     val detail = extractorFailureDetail(error.message.orEmpty())
     return when {
-        "sign in to confirm" in detail.lowercase() || "not a bot" in detail.lowercase() -> "YouTube requires verification for this video. Your YouTube app sign-in is private to that app and cannot be reused by VidFetch."
-        "403" in detail || "forbidden" in detail.lowercase() -> "This website rejected the request (HTTP 403). Try Update extractor in Settings, then try again."
+        "429" in detail || "too many requests" in detail.lowercase() -> "This website is rate limiting requests (HTTP 429). Wait before trying again."
+        "private subreddit" in detail.lowercase() || "quarantined" in detail.lowercase() -> "Reddit requires an account with access to this community. Import fresh reddit.com cookies from an account that can open the post."
+        "reddit api" in detail.lowercase() || ("[reddit]" in detail.lowercase() && listOf("403", "authentication", "forbidden").any { it in detail.lowercase() }) -> "Reddit rejected this session or connection. Import fresh reddit.com cookies exported from Chrome while signed in, then analyze the full post link again. If it still fails, try another network; cookies cannot guarantee access."
+        "sign in to confirm" in detail.lowercase() || "not a bot" in detail.lowercase() -> "YouTube requires verification. Import or replace youtube.com cookies in Settings, then analyze again. YouTube may also reject the current network."
+        "403" in detail || "forbidden" in detail.lowercase() -> "This website rejected the request (HTTP 403). Update the extractor and refresh this site's cookies. If it continues, try another network."
         else -> "Could not complete this request: ${detail.ifBlank { "extractor error" }}"
     }
 }

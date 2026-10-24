@@ -6,55 +6,47 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ExtractionCompatibilityTest {
-    @Test fun redditAndRedgifsPreferUpdatedCompatibilityAndRetryRejectionsOnCurrentRuntime() = runBlocking {
-        for (url in listOf("https://www.reddit.com/r/videos/s/example", "https://redgifs.com/watch/example", "https://v.redd.it/example", "https://thumbs2.redgifs.com/example.mp4")) {
-            val attempts = mutableListOf<ExtractorBackend>()
-            val result = extractWithCompatibility(url) { backend ->
-                attempts += backend
-                if (backend == ExtractorBackend.COMPATIBILITY) error("HTTP Error 403: Forbidden")
-                "downloaded"
-            }
-            assertEquals("downloaded", result)
-            assertEquals(listOf(ExtractorBackend.COMPATIBILITY, ExtractorBackend.CURRENT), attempts)
+    @Test fun missingBrowserTargetCanReachTheDefaultProfile() {
+        assertTrue(retryableSiteRejection("Impersonate target 'chrome' is not available"))
+        assertFalse(retryableSiteRejection("Requested format is not available"))
+    }
+    @Test fun redditTriesChromeThenSupportedFallbacksAndPreservesLastFailure() = runBlocking {
+        for (url in listOf("https://www.reddit.com/comments/example", "https://redd.it/example", "https://v.redd.it/example")) {
+            val attempts = mutableListOf<ExtractionAttempt>()
+            val result = runCatching { extractWithCompatibility(url) {
+                attempts += it
+                error(if (attempts.size < 3) "Your IP address is unable to access the Reddit API" else "HTTP Error 403: final failure")
+            } }
+            assertEquals(listOf(ExtractionAttempt(ExtractorBackend.CURRENT, true), ExtractionAttempt(ExtractorBackend.COMPATIBILITY), ExtractionAttempt(ExtractorBackend.CURRENT)), attempts)
+            assertEquals("HTTP Error 403: final failure", result.exceptionOrNull()?.message)
         }
     }
-
-    @Test fun successfulRequestsAndOtherSitesDoNotRetry() = runBlocking {
+    @Test fun redgifsKeepsCompatibilityFirst() = runBlocking {
+        val attempts = mutableListOf<ExtractionAttempt>()
+        val result = extractWithCompatibility("https://redgifs.com/watch/example") {
+            attempts += it
+            if (it.backend == ExtractorBackend.COMPATIBILITY) error("HTTP Error 403: Forbidden")
+            "ok"
+        }
+        assertEquals("ok", result)
+        assertEquals(listOf(ExtractionAttempt(ExtractorBackend.COMPATIBILITY), ExtractionAttempt(ExtractorBackend.CURRENT)), attempts)
+    }
+    @Test fun successAndOtherSitesDoNotRetryOrImpersonate() = runBlocking {
         var attempts = 0
-        assertEquals("ok", extractWithCompatibility("https://www.reddit.com/comments/example") {
-            assertEquals(ExtractorBackend.COMPATIBILITY, it)
-            attempts++; "ok"
-        })
+        assertEquals("ok", extractWithCompatibility("https://reddit.com/comments/example") { attempts++; "ok" })
         assertEquals(1, attempts)
         for (url in listOf("https://youtu.be/example", "https://pornhub.com/video", "https://reddit.com.attacker.example/video", "https://redgifs.com@attacker.example/video")) {
             attempts = 0
-            val error = runCatching { extractWithCompatibility(url) {
-                assertEquals(ExtractorBackend.CURRENT, it)
-                attempts++; error("HTTP Error 403: Forbidden")
-            } }.exceptionOrNull()
-            assertNotNull(error)
+            runCatching { extractWithCompatibility(url) { assertEquals(ExtractionAttempt(ExtractorBackend.CURRENT), it); attempts++; error("HTTP Error 403: Forbidden") } }
             assertEquals(1, attempts)
         }
     }
-
-    @Test fun cancellationAndUnrelatedErrorsAreNotRetried() = runBlocking {
-        for (error in listOf(CancellationException("cancelled"), IllegalStateException("Requested format is not available"))) {
+    @Test fun cancellationRateLimitsPrivatePostsAndUnrelatedFailuresStopImmediately() = runBlocking {
+        for (failure in listOf(CancellationException("cancelled"), IllegalStateException("Requested format is not available"), IllegalStateException("HTTP 429"), IllegalStateException("Private subreddit; HTTP 403"))) {
             var attempts = 0
-            val result = runCatching { extractWithCompatibility("https://redgifs.com/watch/example") { attempts++; throw error } }
-            assertSame(error, result.exceptionOrNull())
+            val result = runCatching { extractWithCompatibility("https://reddit.com/comments/example") { attempts++; throw failure } }
+            assertSame(failure, result.exceptionOrNull())
             assertEquals(1, attempts)
         }
-    }
-
-    @Test fun anonymousRedditSessionFailureRetriesOnceAndPreservesFinalError() = runBlocking {
-        var attempts = 0
-        val result = runCatching {
-            extractWithCompatibility("https://www.reddit.com/comments/example") { backend ->
-                attempts++
-                error(if (backend == ExtractorBackend.COMPATIBILITY) "Account authentication is required" else "Private subreddit; approved account required")
-            }
-        }
-        assertEquals(2, attempts)
-        assertEquals("Private subreddit; approved account required", result.exceptionOrNull()?.message)
     }
 }
