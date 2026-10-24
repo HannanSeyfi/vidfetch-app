@@ -15,6 +15,7 @@ This APK is for most current Android phones (`arm64-v8a`). Version 0.3.9 adds a 
 | Android | In development |
 | iOS | Planned |
 | Windows | Planned |
+| [<img src=".github/assets/telegram.svg" width="18" height="18" alt="" /> Telegram bot · @VidFetchRobot](https://t.me/VidFetchRobot) | Runs during active Colab sessions |
 
 ## Telegram companion
 
