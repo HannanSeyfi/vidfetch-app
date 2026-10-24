@@ -47,6 +47,8 @@ class FixtureYoutubeDL(yt_dlp.YoutubeDL):
                 assert any(cookie.name == 'loid' for cookie in self.cookiejar)
         elif parsed.hostname == 'old.reddit.com':
             path = '/session.html'
+        elif parsed.hostname == 'v.redd.it':
+            path = '/source.m3u8' if parsed.path.endswith('HLSPlaylist.m3u8') else '/' + parsed.path.rsplit('/', 1)[-1]
         elif parsed.hostname == 'api.redgifs.com':
             path = '/redgifs-auth.json' if parsed.path.endswith('/auth/temporary') else '/redgifs.json'
             if path == '/redgifs.json':
@@ -73,6 +75,13 @@ if cli_file:
     if cli.get('failure'):
         with open(os.path.join(folder, 'reddit.json'), 'w') as stream:
             json.dump({'error': 403, 'reason': 'private'}, stream)
+    if cli.get('public_fallback'):
+        with open(os.path.join(folder, 'reddit.json'), 'w') as stream:
+            json.dump({'error': 403}, stream)
+        with open(os.path.join(folder, 'share.html'), 'w') as stream:
+            stream.write('<shreddit-post id="t3_fixture123" post-title="Public page fixture" content-href="https://v.redd.it/media123">'
+                         '<shreddit-player post-id="t3_fixture123" src="https://v.redd.it/media123/HLSPlaylist.m3u8"></shreddit-player></shreddit-post>'
+                         '<shreddit-player post-id="t3_fixture123" src="https://v.redd.it/wrong/HLSPlaylist.m3u8"></shreddit-player>')
     yt_dlp.YoutubeDL = FixtureYoutubeDL
     yt_dlp.main(cli['arguments'])
     sys.exit(0)

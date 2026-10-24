@@ -171,7 +171,7 @@ def notebook() -> dict:
 
         Sizes are estimates. Available disk space, network timeouts and runtime lifetime still apply.
         Downloads and Telegram uploads use Colab's connection, not your home upload bandwidth.
-        Reddit uses Chrome impersonation with a bounded fallback. Websites can still reject a
+        Reddit uses Chrome impersonation and can read the requested post's own video player from an accessible public page if the JSON endpoint is rejected. Websites can still reject a
         session or Colab's connection even with fresh cookies; cookies cannot guarantee access.
         Download only content you are permitted to download.
 
