@@ -17,6 +17,7 @@ from html import escape
 from pathlib import Path
 
 from . import files, media
+from .cookies import CookieStore
 from .telegram import Telegram, TelegramError
 
 HELP = (
@@ -27,7 +28,7 @@ HELP = (
     "Sizes are estimates. "
     "Only one request is processed at a time in this Colab session.\n\n"
     "/cancel — cancel your current request\n/status — show your request status\n"
-    "/id — show your Telegram user ID\n/help — show these instructions"
+    "/id — show your Telegram user ID\n/cookies — show site cookie status\n/help — show these instructions"
 )
 
 
@@ -65,9 +66,13 @@ class Bot:
         allowed_users: set[int] | None = None,
         workspace: Path | None = None,
         max_jobs: int = 5,
+        cookie_store: CookieStore | None = None,
     ):
         self.api = api
         self.allowed_users = allowed_users or set()
+        if cookie_store and cookie_store.has_enabled() and not self.allowed_users:
+            raise ValueError("Set allowed_user_ids before enabling account cookies.")
+        self.cookie_store = cookie_store
         self.workspace = workspace
         self.max_jobs = max_jobs
         self.jobs: dict[tuple[int, int], Job] = {}
@@ -112,6 +117,13 @@ class Bot:
             await self.api.message(chat["id"], HELP)
         elif command == "/id":
             await self.api.message(chat["id"], f"Your Telegram user ID: {user['id']}")
+        elif command == "/cookies":
+            await self.api.message(
+                chat["id"],
+                self.cookie_store.status()
+                if self.cookie_store
+                else "No imported cookies. Configure optional cookies in the notebook.",
+            )
         elif command == "/cancel":
             self.expire_menus(owner)
             job = self.jobs.get(owner)
@@ -190,7 +202,10 @@ class Bot:
         self, url: str, owner: tuple[int, int], status: media.Status, folder: Path
     ) -> None:
         await status("Finding available video qualities…")
-        analysis = await media.analyze(url, folder, preserve_quality=self.api.local_files)
+        options = {"cookie_store": self.cookie_store} if self.cookie_store else {}
+        analysis = await media.analyze(
+            url, folder, preserve_quality=self.api.local_files, **options
+        )
         self.expire_menus(owner)
         key = secrets.token_urlsafe(8)
         self.selections[key] = Selection(owner, url, analysis, time.monotonic() + 1800)
@@ -246,7 +261,8 @@ class Bot:
                 else (f"{quality.height}p" if quality.height else "best available video")
             )
             await status(f"Downloading {choice}…")
-            source = await media.download(selection.url, quality, folder)
+            options = {"cookie_store": self.cookie_store} if self.cookie_store else {}
+            source = await media.download(selection.url, quality, folder, **options)
             if quality.audio_only:
                 audio = await media.prepare_audio(
                     source,
@@ -354,13 +370,22 @@ class Bot:
 
 
 async def run_bot(
-    token: str, *, allowed_users: set[int] | None = None, api: Telegram | None = None
+    token: str,
+    *,
+    allowed_users: set[int] | None = None,
+    api: Telegram | None = None,
+    cookie_store: CookieStore | None = None,
 ) -> None:
     """Await directly in Colab; interrupt the running cell to shut down cleanly."""
     if not re.fullmatch(r"\d{5,20}:[A-Za-z0-9_-]{20,}", token.strip()):
         print("Enter the complete bot token from @BotFather, including the colon.")
         return
     # Even DEBUG logging must not expose URLs containing Telegram credentials.
+    if cookie_store and cookie_store.has_enabled() and not allowed_users:
+        print(
+            "Set allowed_user_ids to your Telegram user ID before enabling account cookies. Use /id with cookies disabled to find it."
+        )
+        return
     for name in ("httpx", "httpcore"):
         logging.getLogger(name).setLevel(logging.CRITICAL)
     for tool in ("ffmpeg", "ffprobe"):
@@ -369,7 +394,7 @@ async def run_bot(
             return
     owns_api = api is None
     api = api or Telegram(token.strip())
-    bot = Bot(api, allowed_users=allowed_users)
+    bot = Bot(api, allowed_users=allowed_users, cookie_store=cookie_store)
     try:
         identity = await api.call("getMe")
         await api.call("deleteWebhook", {"drop_pending_updates": False})
@@ -381,6 +406,7 @@ async def run_bot(
                     {"command": "cancel", "description": "Cancel your current request"},
                     {"command": "status", "description": "Show request status"},
                     {"command": "id", "description": "Show your Telegram user ID"},
+                    {"command": "cookies", "description": "Show site cookie status"},
                     {"command": "help", "description": "Show instructions"},
                 ]
             },

@@ -309,5 +309,5 @@ class ProcessTests(unittest.IsolatedAsyncioTestCase):
                     timeout=5,
                     folder=Path(directory),
                 )
-            self.assertIn("blocked", str(caught.exception))
+            self.assertIn("HTTP 403", str(caught.exception))
             self.assertNotIn("secret-url", str(caught.exception))

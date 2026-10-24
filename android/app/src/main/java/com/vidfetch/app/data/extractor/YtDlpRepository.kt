@@ -22,31 +22,31 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
 
     override suspend fun analyze(url: String): VideoInfo = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
-            extractWithCompatibility(url) { backend ->
-                parseVideoInfo(ExtractorRuntime.run(context, analysisArguments(cookie, url), backend = backend))
+            extractWithCompatibility(url) { attempt ->
+                parseVideoInfo(ExtractorRuntime.run(context, analysisArguments(cookie, url, attempt.chrome), backend = attempt.backend))
             }
         }
     }
 
     override suspend fun download(url: String, height: Int?, outputTemplate: String, audioOnly: Boolean, progress: (Int) -> Unit): DownloadResult = withContext(Dispatchers.IO) {
         withCookies(url) { cookie ->
-            extractWithCompatibility(url) { backend ->
-                val output = ExtractorRuntime.run(context, downloadArguments(cookie, url, height, outputTemplate, audioOnly), progress, backend)
+            extractWithCompatibility(url) { attempt ->
+                val output = ExtractorRuntime.run(context, downloadArguments(cookie, url, height, outputTemplate, audioOnly, attempt.chrome), progress, attempt.backend)
                 completedDownload(output, outputTemplate, audioOnly)
             }
         }
     }
 
-    internal fun analysisArguments(cookie: File?, url: String) = baseArguments(cookie) + listOf("--dump-single-json", "--skip-download", "--", url)
+    internal fun analysisArguments(cookie: File?, url: String, chrome: Boolean = siteForUrl(url) == "reddit.com") = baseArguments(cookie, chrome) + listOf("--dump-single-json", "--skip-download", "--", url)
 
-    internal fun downloadArguments(cookie: File?, url: String, height: Int?, outputTemplate: String, audioOnly: Boolean = false): List<String> {
+    internal fun downloadArguments(cookie: File?, url: String, height: Int?, outputTemplate: String, audioOnly: Boolean = false, chrome: Boolean = siteForUrl(url) == "reddit.com"): List<String> {
         // Any retried site request starts clean, including a retry on the modern runtime.
         val restart = if (supportsCompatibility(url)) listOf("--force-overwrites", "--no-continue") else emptyList()
         val processing = if (audioOnly) listOf("--extract-audio", "--audio-format", "m4a", "--audio-quality", "0") else {
             val youtube = if (siteForUrl(url) == "youtube.com") listOf("--format-sort", "res,vcodec:h264,acodec:aac", "--remux-video", "mp4") else emptyList()
             youtube + listOf("--merge-output-format", "mp4")
         }
-        return baseArguments(cookie) + restart + processing + listOf(
+        return baseArguments(cookie, chrome) + restart + processing + listOf(
             "-f", selectorFor(height, url, audioOnly), "-o", outputTemplate,
             "--newline", "--progress", "--progress-template", "download:VIDFETCH_PROGRESS:%(progress._percent_str)s",
             "--print", "after_move:VIDFETCH_HEIGHT:%(height)s",
@@ -76,12 +76,13 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         return DownloadResult(video?.optInt("height")?.takeIf { it > 0 }, file)
     }
 
-    private fun baseArguments(cookie: File?) = buildList {
+    private fun baseArguments(cookie: File?, chrome: Boolean) = buildList {
         addAll(listOf("--ignore-config", "--no-playlist", "--continue", "--retries", "10", "--fragment-retries", "10", "--socket-timeout", "30"))
         val native = context.applicationInfo.nativeLibraryDir
         addAll(listOf("--no-cache-dir", "--js-runtimes", "quickjs:$native/libqjs-cli.so"))
         addAll(listOf("--ffmpeg-location", "$native/libffmpeg.so"))
         cookie?.let { addAll(listOf("--cookies", it.absolutePath)) }
+        if (chrome) addAll(listOf("--impersonate", "chrome"))
         // Extractors can use curl_cffi themselves; do not force impersonation on every site.
     }
 

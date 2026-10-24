@@ -5,7 +5,7 @@ import org.junit.Test
 
 class FriendlyErrorTest {
     @Test fun redditAndRedgifsForbiddenErrorsDoNotMentionYoutube() {
-        for (detail in listOf("[Reddit] HTTP Error 403: Forbidden", "[RedGifs] HTTP Error 403: Forbidden", "HTTP Error 403: Blocked", "forbidden")) {
+        for (detail in listOf("[RedGifs] HTTP Error 403: Forbidden", "HTTP Error 403: Blocked", "forbidden")) {
             val message = friendlyError(IllegalStateException(detail))
             assertTrue(message.contains("HTTP 403"))
             assertFalse(message.contains("YouTube"))
@@ -23,8 +23,13 @@ class FriendlyErrorTest {
                      It is strongly recommended to always use the latest version.
             ERROR: [Reddit] Account authentication is required
         """.trimIndent()))
-        assertTrue(message.contains("Account authentication is required"))
+        assertTrue(message.contains("Chrome"))
         assertFalse(message.contains("outdated"))
         assertFalse(message.contains("YouTube"))
+    }
+    @Test fun redditSessionAndRateLimitErrorsGiveDifferentNextSteps() {
+        assertTrue(friendlyError(IllegalStateException("[Reddit] Your IP address is unable to access the Reddit API")).contains("reddit.com"))
+        assertTrue(friendlyError(IllegalStateException("[Reddit] HTTP Error 403")).contains("Chrome"))
+        assertTrue(friendlyError(IllegalStateException("HTTP Error 429")).contains("Wait"))
     }
 }

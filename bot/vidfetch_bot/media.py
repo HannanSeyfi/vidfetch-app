@@ -13,9 +13,12 @@ import signal
 import socket
 import sys
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from .cookies import CookieError, CookieStore, site_for_url
 
 UPLOAD_LIMIT = 49_000_000  # Below the cloud Bot API's 50 MB limit, in bytes.
 TARGET_BYTES = 46_000_000
@@ -26,6 +29,55 @@ Status = Callable[[str], Awaitable[None]]
 
 class MediaError(Exception):
     """A safe, actionable message that can be displayed in Telegram."""
+
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+def tool_error(log: str, args: list[str]) -> MediaError:
+    # Use the terminal failure, not a startup warning mentioning cookies or a URL.
+    errors = [line for line in log.splitlines() if line.lstrip().startswith("ERROR:")]
+    detail = (errors[-1] if errors else log).lower()
+    site = site_for_url(args[-1]) if "yt_dlp" in args and args else None
+    if "429" in detail or "too many requests" in detail:
+        return MediaError("This site is rate limiting requests (HTTP 429). Wait before retrying.")
+    if "private subreddit" in detail or "quarantined" in detail:
+        return MediaError("Reddit requires cookies from an account with access to this community.")
+    blocked = any(
+        item in detail
+        for item in (
+            "403",
+            "forbidden",
+            "unable to access the reddit api",
+            "account authentication is required",
+            "impersonate target",
+            "impersonation target",
+        )
+    )
+    if site == "reddit.com" and blocked:
+        return MediaError(
+            "Reddit rejected this session or connection. Import fresh reddit.com cookies from "
+            "Chrome in the notebook, then send the full post link again. If it still fails, "
+            "Reddit may be rejecting this host's network.",
+            retryable=True,
+        )
+    if any(item in detail for item in ("sign in", "login", "authentication", "not a bot")):
+        return MediaError(
+            "This site requires verification or rejected the session. Import or replace its "
+            "cookies in the notebook, then send the link again. The site may also reject "
+            "the host's network."
+        )
+    if blocked:
+        return MediaError(
+            "This site rejected the request (HTTP 403). Refresh its cookies and extractor. "
+            "If it continues, try a host on another network."
+        )
+    if "requested format" in detail:
+        return MediaError("That quality is no longer available. Send the link again to refresh it.")
+    return MediaError(
+        "The media tool could not finish. The link may be unsupported or unavailable."
+    )
 
 
 def check_disk(folder: Path) -> None:
@@ -310,32 +362,16 @@ async def command(
                 communicate.cancel()
             await asyncio.gather(communicate, return_exceptions=True)
     if process.returncode:
-        # Never forward extractor URLs, cookies or arbitrary subprocess logs to chats.
-        detail = log_path.read_text(encoding="utf-8", errors="replace").lower()
-        if "sign in" in detail or "cookies" in detail or "login" in detail:
-            raise MediaError(
-                "This site requires sign-in or rejected this session. Try a public video."
-            )
-        if "403" in detail or "429" in detail or "not a bot" in detail:
-            raise MediaError(
-                "The site blocked this Colab connection. Try again later or use the Android app."
-            )
-        if "requested format" in detail:
-            raise MediaError(
-                "That quality is no longer available. Send the link again to refresh it."
-            )
-        raise MediaError(
-            "The media tool could not finish. The link may be unsupported or unavailable."
-        )
+        raise tool_error(log_path.read_text(encoding="utf-8", errors="replace"), args)
     if len(output) > 16_000_000:
         raise MediaError("The site returned too much metadata. Send a single-video link.")
     return output.decode("utf-8", errors="replace").strip()
 
 
-def extractor_args() -> list[str]:
+def extractor_args(*, cookie: Path | None = None, chrome: bool = False) -> list[str]:
     import deno
 
-    return [
+    args = [
         sys.executable,
         "-m",
         "yt_dlp",
@@ -358,14 +394,61 @@ def extractor_args() -> list[str]:
         "--format-sort",
         "res,vcodec:h264,acodec:aac",
     ]
+    if cookie:
+        args += ["--cookies", str(cookie)]
+    if chrome:
+        args += ["--impersonate", "chrome"]
+    return args
 
 
-async def analyze(url: str, folder: Path, *, preserve_quality: bool = False) -> Analysis:
+async def extract(
+    url: str,
+    arguments: list[str],
+    folder: Path,
+    *,
+    timeout: int,
+    cookie_store: CookieStore | None = None,
+    download_guard: bool = False,
+) -> str:
+    reddit = site_for_url(url) == "reddit.com"
+    for chrome in (True, False) if reddit else (False,):
+        context = cookie_store.snapshot_for(url, folder) if cookie_store else nullcontext(None)
+        try:
+            with context as cookie:
+                restart = (
+                    ["--force-overwrites", "--no-continue"] if reddit and download_guard else []
+                )
+                return await command(
+                    extractor_args(cookie=cookie, chrome=chrome)
+                    + restart
+                    + arguments
+                    + ["--", url],
+                    timeout=timeout,
+                    folder=folder,
+                    download_guard=download_guard,
+                )
+        except CookieError as error:
+            raise MediaError(str(error)) from None
+        except MediaError as error:
+            if not chrome or not error.retryable:
+                raise
+    raise AssertionError("No extraction attempt")
+
+
+async def analyze(
+    url: str,
+    folder: Path,
+    *,
+    preserve_quality: bool = False,
+    cookie_store: CookieStore | None = None,
+) -> Analysis:
     await validate_url(url)
-    raw = await command(
-        extractor_args() + ["--dump-single-json", "--skip-download", "--", url],
+    raw = await extract(
+        url,
+        ["--dump-single-json", "--skip-download"],
+        folder,
         timeout=180,
-        folder=folder,
+        cookie_store=cookie_store,
     )
     try:
         info = json.loads(raw)
@@ -381,12 +464,14 @@ async def analyze(url: str, folder: Path, *, preserve_quality: bool = False) -> 
         raise MediaError("The site did not return usable video information.") from None
 
 
-async def download(url: str, quality: Quality, folder: Path) -> Path:
+async def download(
+    url: str, quality: Quality, folder: Path, *, cookie_store: CookieStore | None = None
+) -> Path:
     # Recheck the initial host when a button is used later in the session.
     await validate_url(url)
-    raw = await command(
-        extractor_args()
-        + [
+    raw = await extract(
+        url,
+        [
             "--format",
             quality.selector,
             "--merge-output-format",
@@ -395,11 +480,10 @@ async def download(url: str, quality: Quality, folder: Path) -> Path:
             str(folder / "source.%(ext)s"),
             "--print",
             "after_move:%(filepath)j",
-            "--",
-            url,
         ],
+        folder,
         timeout=7200,
-        folder=folder,
+        cookie_store=cookie_store,
         download_guard=True,
     )
     try:

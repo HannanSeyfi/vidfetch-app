@@ -1,14 +1,15 @@
-VidFetch 0.3.7 adds audio downloads to quality selection.
+VidFetch 0.3.8 improves Reddit extraction and site cookie handling.
 
-- After analyzing a shared or pasted link, select **Audio only · M4A** and tap **Download audio**.
-- Downloads the best available audio stream, or extracts audio from a combined video when a separate stream is unavailable. Extraction and conversion run locally on the phone.
-- Saves M4A audio in **Downloads/VidFetch**. The Downloads tab lists audio with a music icon and supports opening, sharing, renaming and deleting it.
-- Hides audio selection for formats explicitly marked silent. Links with unspecified audio metadata can still be tried; files without an audio stream are never published as completed audio.
-- Keeps existing video quality choices, YouTube MP4 merging, Reddit/RedGIFs compatibility, optional cookies and the 0.3.6 FFmpeg library fix.
-- Adds Android regression checks for separate and combined streams, audio validation, folder operations and the shared-link audio selection flow.
+- Updates bundled yt-dlp to official nightly 2026.10.23.233055, verified by SHA-256.
+- Uses reddit.com cookies for Reddit short links and media aliases before redirects, while preserving cookie domain isolation.
+- Tries Reddit with Chrome impersonation on the current runtime, then the compatibility runtime, then a default current-runtime request. Retries are bounded; cancellation, rate limits and inaccessible private communities stop immediately.
+- Discards expired cookie entries and shows unexpired cookie counts and sign-in cookie presence in Settings. Enabled cookies do not guarantee that a website accepts the session.
+- Gives specific guidance for Reddit session rejection, YouTube verification and HTTP 429.
+- Retains audio-only M4A downloads, video quality selection, Downloads folder access, media validation and existing FFmpeg isolation fixes.
+- Publishes the Telegram companion with original-quality large-file delivery and a new optional YouTube/Reddit cookie setup cell. Cookies are imported into private runtime storage and used for both analysis and downloads. An explicit Telegram user allowlist is required when account cookies are enabled.
 
-Choose **VidFetch_v8a_0.3.7.apk** for most current Android phones, or **VidFetch_v7a_0.3.7.apk** for 32-bit ARM phones. Both require Android 7.0 or newer and use the existing release signing identity, so they can update an existing installation.
+Choose **VidFetch_v8a_0.3.8.apk** for most current Android phones, or **VidFetch_v7a_0.3.8.apk** for 32-bit ARM phones. Both require Android 7.0+ and use the existing release signing identity.
 
-For copied-in or restored media on Android 10+, open Downloads, tap **Allow folder access**, then select **Downloads/VidFetch** once.
+Open the updated bot notebook from the repository's main branch and run all cells. Saved copies contain their previous embedded source. In the optional cookies cell choose Import / replace for each site, upload a Netscape export, then enter your Telegram ID in the start cell. Use /id with cookies disabled to find it. Every allowlisted user can use the imported accounts; only list trusted people.
 
-Automated runtime checks use Android emulators and controlled media fixtures. Physical ARM devices still need field verification; live-site availability can vary with network and verification requirements.
+Automated checks exercise controlled media fixtures and Android emulators. Live Reddit/YouTube access can still be restricted by account/session validity, network reputation, verification requirements or upstream site changes. Private credentials are never included in the source, notebook or APK.

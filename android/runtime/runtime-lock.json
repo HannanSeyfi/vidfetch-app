@@ -1,5 +1,5 @@
 {
-  "ytDlpVersion": "2026.10.10.233141",
+  "ytDlpVersion": "2026.10.23.233055",
   "runtimeCommit": "35f2609d80ce26b6683a0b2b6bc52f32efe4c81c",
   "artifacts": [
     {
@@ -109,8 +109,8 @@
     },
     {
       "path": "res/raw/ytdlp",
-      "url": "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/2026.10.10.233141/yt-dlp",
-      "sha256": "f40b6a9e4c5786360953911cab5d2f87507626b8fb7bfee3f8f1c2e5cf341fae"
+      "url": "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/2026.10.23.233055/yt-dlp",
+      "sha256": "e70a37d222186a882bcc99a1977faa875ab6c4f72731c807810ba121a08e308e"
     },
     {
       "path": "jni/arm64-v8a/libpython-compat.so",

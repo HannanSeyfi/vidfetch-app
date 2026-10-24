@@ -67,15 +67,19 @@ def notebook() -> dict:
                 del sys.modules[name]
         importlib.invalidate_caches()
         from vidfetch_bot.local_api import install_server
+        from vidfetch_bot.cookies import CookieStore
+        if "vidfetch_cookie_dir" not in globals():
+            vidfetch_cookie_dir = Path(tempfile.mkdtemp(prefix="vidfetch-cookies-"))
+        vidfetch_cookies = CookieStore(vidfetch_cookie_dir)
         vidfetch_api_binary = install_server()
-        print("Setup complete. Run the next cell and enter the three Telegram credentials.")
+        print("Setup complete. Configure optional site cookies, then start the bot.")
     """)
     setup = setup.replace("+ REQUIREMENTS", "+ " + repr(requirements))
     setup = setup.replace(
         "for name, source in SOURCES.items():", "for name, source in " + repr(sources) + ".items():"
     )
     start = textwrap.dedent("""\
-        #@title 2. Start the Telegram bot
+        #@title 3. Start the Telegram bot
         # Optional: comma-separated numeric Telegram user IDs. Blank allows any private-chat user.
         allowed_user_ids = "" #@param {type:"string"}
 
@@ -90,6 +94,9 @@ def notebook() -> dict:
             except ValueError:
                 print("Use numeric user IDs separated by commas, or leave the field blank.")
                 return
+            if vidfetch_cookies.has_enabled() and not allowed:
+                print("Enter your Telegram user ID in allowed_user_ids before enabling cookies. To find it, disable cookies, start the bot and send /id.")
+                return
             # Colab Secrets or hidden inputs keep credentials out of source and outputs.
             token = read_secret("TELEGRAM_BOT_TOKEN", "Bot token from @BotFather: ")
             api_id = read_secret("TELEGRAM_API_ID", "Telegram api_id from my.telegram.org: ")
@@ -98,11 +105,22 @@ def notebook() -> dict:
                 async with local_bot_api(
                     token, api_id, api_hash, binary=vidfetch_api_binary
                 ) as api:
-                    await run_bot(token, allowed_users=allowed, api=api)
+                    await run_bot(token, allowed_users=allowed, api=api, cookie_store=vidfetch_cookies)
             except (LocalAPIError, TelegramError) as error:
                 print(str(error))
 
         await start_vidfetch()
+    """)
+    cookie_setup = textwrap.dedent("""\
+        #@title 2. Optional YouTube and Reddit cookies
+        # Stop the running bot before changing cookies. Cookie files stay in this temporary runtime.
+        youtube_cookies = "Keep" #@param ["Keep", "Import / replace", "Enable", "Disable", "Delete"]
+        reddit_cookies = "Keep" #@param ["Keep", "Import / replace", "Enable", "Disable", "Delete"]
+        from vidfetch_bot.colab_cookies import configure_cookies
+        configure_cookies(vidfetch_cookies, {
+            "youtube.com": youtube_cookies,
+            "reddit.com": reddit_cookies,
+        })
     """)
     intro = textwrap.dedent("""\
         # VidFetch Telegram bot
@@ -131,27 +149,39 @@ def notebook() -> dict:
         Do not paste credentials into code cells. The API server runs only on Colab's loopback
         interface; no public URL, tunnel, home computer server, or GPU is needed.
 
-        Keep the second cell running. Its stop button shuts the bot down; rerun it to restart.
+        Keep the start cell running. Its stop button shuts the bot down; rerun it to restart.
         Colab sessions are temporary and subject to [Colab's limits and policies](https://research.google.com/colaboratory/faq.html).
         Interrupted downloads and old quality menus do not survive a runtime restart.
         To update an older copy, stop its bot cell, reopen the latest GitHub notebook,
-        and run both cells again. Rerunning only the start cell does not update the embedded code.
+        and run all cells again. Rerunning only the start cell does not update the embedded code.
 
-        Optional: restrict access with Telegram user IDs in cell 2 (use `/id` to find yours).
+        Optional: import Netscape-format cookies in cell 2 using **Import / replace** for each site.
+        Export only `youtube.com` or `reddit.com` cookies, never paste their contents into a cell.
+        For Reddit, try a fresh signed-in Chrome export. For YouTube, follow the
+        [official export instructions](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies).
+        Files are scoped to that site, checked for expiration and stored privately in this runtime.
+        `/cookies` shows status without cookie values. Stop the bot and rerun cell 2 to replace,
+        enable, disable or delete cookies; then restart cell 3 and send the link again.
+
+        Restrict access with Telegram user IDs in cell 3 (use `/id` to find yours).
+        **An explicit allowlist is required when account cookies are enabled.** Every allowed user
+        can request content accessible to the imported accounts; list only people you trust.
         Leave the field blank to accept private messages from anyone who finds your bot.
         Use `/cancel` to stop your request and `/status` to check it.
 
         Sizes are estimates. Available disk space, network timeouts and runtime lifetime still apply.
         Downloads and Telegram uploads use Colab's connection, not your home upload bandwidth.
-        Some sites block Colab IP addresses or require sign-in. This notebook does not import cookies.
+        Reddit uses Chrome impersonation with a bounded fallback. Websites can still reject a
+        session or Colab's connection even with fresh cookies; cookies cannot guarantee access.
         Download only content you are permitted to download.
 
-        [Source and documentation](https://github.com/HannanSeyfi/vidfetch-app/tree/codex/telegram-colab-bot/bot)
+        [Source and documentation](https://github.com/HannanSeyfi/vidfetch-app/tree/main/bot)
     """)
     return {
         "cells": [
             cell("markdown", intro, "instructions"),
             cell("code", setup, "setup"),
+            cell("code", cookie_setup, "cookies"),
             cell("code", start, "start"),
         ],
         "metadata": {

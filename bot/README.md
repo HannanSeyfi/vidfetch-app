@@ -1,6 +1,6 @@
 # VidFetch Telegram bot for Colab
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HannanSeyfi/vidfetch-app/blob/codex/telegram-colab-bot/bot/VidFetch_Telegram_Colab.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HannanSeyfi/vidfetch-app/blob/main/bot/VidFetch_Telegram_Colab.ipynb)
 
 VidFetch downloads video and audio in Colab and delivers the selected quality through Telegram. The notebook runs both the Python bot and Telegram's official Bot API server on the **Colab machine**, using its internet connection. No home server, public IP, domain, tunnel, Google Drive mount, or GPU is needed.
 
@@ -16,9 +16,23 @@ The first setup compiles pinned official [telegram-bot-api](https://github.com/t
 
 The first start deregisters this bot from `api.telegram.org` with `logOut`, then routes **all** bot requests to the local server. Telegram prevents returning to the hosted API for ten minutes after that migration. Stopping and rerunning the bot cell reuses the runtime's server data and migration marker. Run only one instance of a bot at a time. If changing to another machine, stop the old instance first; use Telegram's [local-server migration procedure](https://github.com/tdlib/telegram-bot-api#moving-a-bot-from-one-local-server-to-another) when preserving pending updates matters.
 
-Saved Colab copies contain their old embedded Python sources. **Reopen the latest GitHub notebook and rerun both cells** to update; restarting only an old start cell cannot install this change.
+Saved Colab copies contain their old embedded Python sources. **Reopen the latest GitHub notebook and rerun all cells** to update; restarting only an old start cell cannot install this change.
 
 Hidden prompts and Secrets keep credentials out of notebook source and outputs. The local server maintains authorization state in the temporary runtime filesystem, so do not share its data directory or a live runtime with someone you do not trust. The directory disappears when Colab deletes the runtime.
+
+## Optional YouTube and Reddit cookies
+
+1. Start once with cookies disabled and send `/id` to learn your Telegram user ID, then stop the bot.
+2. Reopen the latest notebook from **main** and run setup. In **cell 2**, choose **Import / replace** for YouTube or Reddit and upload one Netscape-format export for that site. Files stay in the temporary runtime, outside notebook source and media output.
+3. For Reddit use a fresh signed-in Chrome export. For YouTube follow [yt-dlp's official export instructions](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies): use a new private/incognito login, visit youtube.com/robots.txt in the same tab, export youtube.com cookies and close that private window.
+4. Enter your numeric Telegram ID in `allowed_user_ids` in **cell 3** and start. Enabled account cookies require a nonempty allowlist. All listed users can request content accessible to these accounts; list only trusted people. No cookies are accepted through Telegram messages.
+5. `/cookies` reports site status and common sign-in cookie presence, without cookie values. To replace, enable, disable or delete cookies, stop the bot, rerun cell 2 with the desired action, then restart cell 3 and send the URL again.
+
+Imports are limited to 2 MB, validated, filtered to the selected site's domains and stripped of expired entries. Each extraction uses a private temporary snapshot, deleted on completion, failure or cancellation. Reddit short links select the reddit.com jar; YouTube aliases select youtube.com. Normal cookie domain rules still apply to redirects and media requests. Sign-in cookie presence is a local check, not proof of a valid session. Cookie files expire with the Colab runtime and must be reimported after a runtime reset. Never commit exports, paste their contents into notebook cells or share an active runtime.
+
+On another host, set `VIDFETCH_COOKIE_DIR` to a dedicated private directory containing `youtube.com.cookies` and/or `reddit.com.cookies`, using validated Netscape exports, and set `VIDFETCH_ALLOWED_USERS`. Alternatively import with `CookieStore.import_file(site, path)` before starting. The runtime revalidates snapshots and never enables a public bot with account cookies.
+
+Cookies authenticate a session; they do not guarantee access from Colab. Session/fingerprint/network restrictions can affect Reddit and YouTube even when the browser or Android app works. Update the extractor, replace rejected sessions and compare the same public post on the actual bot host. If that host's network is rejected, use a host/connection where the same test succeeds. YouTube PO-token errors require a separate compatible provider setup; cookie import does not generate PO tokens.
 
 ## Quality and large files
 
@@ -34,7 +48,7 @@ Cancellation or interrupted delivery can leave already-sent Telegram messages in
 
 ## Commands and access
 
-Commands: `/start`, `/help`, `/status`, `/cancel`, and `/id`. Cancellation stops active download/preparation subprocesses and cleans job files. Temporary media is removed after success, error, or cancellation; only one part is staged at a time while sending a large file.
+Commands: `/start`, `/help`, `/status`, `/cancel`, `/id`, and `/cookies`. Cancellation stops active download/preparation subprocesses and cleans job files. Temporary media is removed after success, error, or cancellation; only one part is staged at a time while sending a large file.
 
 Menus belong to the requesting user, expire after 30 minutes, and are invalidated after use or when the user requests another link. One request runs at a time, with at most five active/queued requests and one per user. The optional `allowed_user_ids` field accepts comma-separated numeric Telegram IDs. Find yours with `/id`, stop the cell, set the field, and restart. A blank field allows anyone who discovers the bot to use it in private chats. Groups are not supported.
 
@@ -42,7 +56,7 @@ The [bot profile picture](assets/vidfetch-bot-avatar.png) and its [generation pr
 
 ## Other limits
 
-Site support comes from yt-dlp, with its EJS components, curl_cffi networking and Deno. Authentication requirements, DRM, IP reputation and site changes can prevent a download. No cookies are imported, and raw extractor logs are not sent to Telegram. Playlists and ongoing live streams are not supported. Initial links must use HTTP(S), resolve to public IPs and use standard web ports. Extractor redirects and nested media requests are handled by yt-dlp; this is a small personal bot rather than a hardened public download service.
+Site support comes from yt-dlp, with its EJS components, curl_cffi networking and Deno. Authentication requirements, DRM, IP reputation and site changes can prevent a download. Optional cookies are supported as described below; raw extractor logs are not sent to Telegram. Reddit uses Chrome impersonation followed by one default-profile retry only for eligible session/403 failures. Rate limits and private-community access errors are not retried. Playlists and ongoing live streams are not supported. Initial links must use HTTP(S), resolve to public IPs and use standard web ports. Extractor redirects and nested media requests are handled by yt-dlp; this is a small personal bot rather than a hardened public download service.
 
 Colab is a temporary interactive environment: its runtime shutdown stops both programs. Google [restricts media serving unrelated to interactive compute](https://research.google.com/colaboratory/faq.html#limitations-and-restrictions); adding a local Telegram server does not create an exception. Use a persistent host for continuous operation. There is no keepalive or Colab-limit bypass mechanism. Unfinished jobs and old menus do not persist across runtime restarts.
 

@@ -259,6 +259,27 @@ class ExtractorRuntimeTest {
         assertNull(store.snapshotFor("https://$host/video"))
     }
 
+    @Test fun redditAliasesReceiveScopedCookiesAndBothRuntimesSupportChrome() = runBlocking {
+        val store = SiteCookieStore(context)
+        val repository = YtDlpRepositoryImpl(context)
+        try {
+            store.importFile("reddit.com", "# Netscape HTTP Cookie File\n#HttpOnly_.reddit.com\tTRUE\t/\tTRUE\t0\treddit_session\tsynthetic\n".byteInputStream())
+            for (url in listOf("https://redd.it/fixture", "https://v.redd.it/fixture", "https://old.reddit.com/comments/fixture")) {
+                val snapshot = store.snapshotFor(url)!!
+                try {
+                    val arguments = repository.analysisArguments(snapshot, url)
+                    assertEquals("chrome", arguments[arguments.indexOf("--impersonate") + 1])
+                    assertEquals(snapshot.absolutePath, arguments[arguments.indexOf("--cookies") + 1])
+                } finally { snapshot.delete() }
+            }
+            assertNull(store.snapshotFor("https://reddit.com.attacker.example/video"))
+            for (backend in ExtractorBackend.entries) {
+                val targets = ExtractorRuntime.run(context, listOf("--list-impersonate-targets"), backend = backend)
+                assertTrue(targets.lowercase().contains("chrome"))
+            }
+        } finally { store.delete("reddit.com") }
+    }
+
     @Test fun userProvidedYoutubeLink() = runBlocking {
         val url = ExtractorInstrumentationRunner.active.arguments.getString("liveUrl") ?: return@runBlocking
         val repository = YtDlpRepositoryImpl(context)
