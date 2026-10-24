@@ -432,7 +432,7 @@ class MainActivity : ComponentActivity() {
         HorizontalDivider()
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Site cookies (optional)", style = MaterialTheme.typography.titleMedium)
-            Text("Public videos work without imported cookies. Add your own cookies.txt for a site that needs your signed-in session.")
+            Text("Add a Netscape cookies.txt export for sites that need your session. For Reddit, try a fresh export from Chrome while signed in. Enabled cookies can still be rejected by the website.")
             OutlinedTextField(
                 value = cookieDomain, onValueChange = { cookieDomain = it },
                 label = { Text("Website domain") }, placeholder = { Text("youtube.com") },
@@ -449,6 +449,7 @@ class MainActivity : ComponentActivity() {
                             Text(site.host, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                             Switch(checked = site.enabled, onCheckedChange = { setCookiesEnabled(site.host, it) }, enabled = cookiesEditable)
                         }
+                        Text(site.status, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = { deleteCookies(site.host) }, enabled = cookiesEditable) { Text("Delete cookies") }
                     }
                 }

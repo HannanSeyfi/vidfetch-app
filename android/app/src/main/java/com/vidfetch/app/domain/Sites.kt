@@ -17,6 +17,7 @@ fun siteForUrl(value: String): String? {
     val host = normalizedHost(value) ?: return null
     return when {
         host == "youtu.be" || domainMatches(host, "youtube.com") || domainMatches(host, "youtube-nocookie.com") -> "youtube.com"
+        listOf("reddit.com", "redditmedia.com", "redd.it").any { domainMatches(host, it) } -> "reddit.com"
         domainMatches(host, "pornhub.com") -> "pornhub.com"
         else -> host
     }

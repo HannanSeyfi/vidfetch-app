@@ -26,3 +26,8 @@ obj/
 gradle-*.zip
 jdk.zip
 temurin*.zip
+__pycache__/
+.codex-remote-attachments/
+.apk-inspect/
+.inspect/
+VidFetchRobot/

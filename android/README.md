@@ -1,12 +1,12 @@
 # VidFetch for Android
 
-Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.7 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
+Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.8 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
 
 ## Multi-site extraction
 
-The APK bundles yt-dlp **2026.10.10.233141**, matching the successful reference notebook, with its built-in EJS challenge components. The native runtime provides Python 3.14, curl_cffi, QuickJS-ng 0.16.2, FFmpeg and ffprobe 8.1.2. Settings displays the actual installed yt-dlp, Python and curl_cffi versions. No Python, Termux or Deno installation is required on the phone.
+The APK bundles yt-dlp **2026.10.23.233055**, with its built-in EJS challenge components. The native runtime provides Python 3.14, curl_cffi, QuickJS-ng 0.16.2, FFmpeg and ffprobe 8.1.2. Settings displays the actual installed yt-dlp, Python and curl_cffi versions. No Python, Termux or Deno installation is required on the phone.
 
-Site support comes from yt-dlp's extractors. VidFetch leaves YouTube client selection and extractor-specific browser impersonation to yt-dlp. Generic downloads support separate or combined video/audio streams; Pornhub requests prefer direct MP4 before other combined formats. A selected resolution falls back only to the same or a lower resolution. When known, the completion message reports a different downloaded resolution.
+Site support comes from yt-dlp's extractors. VidFetch leaves YouTube client selection to yt-dlp and uses Chrome browser impersonation for Reddit requests. Generic downloads support separate or combined video/audio streams; Pornhub requests prefer direct MP4 before other combined formats. A selected resolution falls back only to the same or a lower resolution. When known, the completion message reports a different downloaded resolution.
 
 YouTube sorts resolution first, preferring H.264/AAC when available at that resolution, requests M4A audio where available and remuxes completed output to MP4. The app uses yt-dlp's reported `after_move` filepath, validates that it exists inside the working directory, and checks the final file with ffprobe for a real video stream. Audio intermediates are never selected by modification time or published as completed videos. Other sites retain their 0.3.4 format selectors and extraction profiles; silent videos remain supported.
 
@@ -18,11 +18,11 @@ Quality choices include formats with a known resolution even when the video code
 
 The existing Update extractor button downloads an official nightly, verifies its SHA-256 checksum and version, and installs it atomically. Upgrading the app replaces an older bundled extractor while retaining a newer installed nightly.
 
-Reddit and RedGIFs prefer the Python 3.12/networking payload shipped in 0.2.2, paired with the same updated yt-dlp used by the main runtime and current FFmpeg. This matches 0.2.2 after using Update extractor. It applies to validated Reddit/RedGIFs domains and their media subdomains, in both analysis and downloading. HTTP 403 or anonymous-session rejection retries on the modern runtime; other sites start there. Both attempts use the same optional cookie snapshot; cancellation and unrelated errors are not retried. Downloads on these sites restart partial files to avoid combining streams selected by different attempts. Update extractor now applies to both runtimes. The frozen 2025 extractor added in 0.3.3 is removed, including its private installed copy on upgrade. Startup warnings are separated from the terminal extraction error. See runtime/README.md for provenance.
+Reddit first uses the current Python 3.14/curl_cffi runtime with Chrome impersonation. Eligible session/403 failures try the Python 3.12 compatibility runtime with its default networking profile, then the current runtime's default request profile, with at most three attempts. The exact Reddit API rejection message also triggers fallback. RedGIFs retains compatibility-first/current-second behavior. Cancellation, HTTP 429, inaccessible private communities and unrelated failures are not retried. Both runtimes use the same updated yt-dlp. Site downloads restart partial files between attempts. Browser profiles and cookies cannot guarantee access when a website rejects the session or network. See runtime/README.md for runtime provenance.
 
 ## Optional site cookies
 
-Public downloads use no imported cookies by default. In Settings, enter the website domain and choose Import / replace cookies.txt through Android's file picker. Exports must use Netscape format. The importer validates entries and retains only cookies for that domain and its subdomains. YouTube aliases use the youtube.com configuration.
+Public downloads use no imported cookies by default. In Settings, enter the website domain and choose Import / replace cookies.txt through Android's file picker. Exports must use Netscape format. The importer validates entries and retains only cookies for that domain and its subdomains. YouTube aliases use the youtube.com configuration. Reddit aliases, including `redd.it`, `v.redd.it`, `old.reddit.com` and `redditmedia.com`, select the reddit.com jar before redirects; the cookie jar still enforces each cookie's original domain. Expired entries are discarded, entirely expired exports are rejected, and Settings reports unexpired cookie counts and the presence of common sign-in cookie names. This is a local check, not confirmation that a website accepts the session. For Reddit, try a fresh signed-in Chrome export.
 
 Each site has an enable switch and delete control. Cookie files, settings and per-request snapshots live in `noBackupFilesDir`, outside backups and the media FileProvider. No account cookies are logged or sent to a VidFetch service. Analysis and downloading use the same site configuration. Importing or changing cookies clears an existing analysis so it can be refreshed.
 
@@ -68,3 +68,5 @@ The runtime payload comes from a pinned upstream contribution that has not yet m
 Website support and availability can change. Regional restrictions, authentication, IP reputation and DRM can prevent downloads. Colab and a phone may receive different responses from the same site.
 
 Downloads do not resume after a force-stop, reboot or process termination. Folder access must be granted again after reinstalling or revoking its system permission.
+
+0.3.8 adds cookie alias/expiry checks, request-profile and bounded retry tests, distinct session/rate-limit errors, and on-device checks that the current runtime supports Chrome impersonation and the compatibility runtime retains its supported default profile. Live verification still depends on the actual phone/network and user-provided sessions.

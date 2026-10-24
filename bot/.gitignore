@@ -1,0 +1,15 @@
+__pycache__/
+.venv/
+.ruff_cache/
+.ipynb_checkpoints/
+downloads/
+*.mp4
+*.webm
+*.mkv
+*.m4a
+*.mka
+*.mp3
+*.part
+*.part[0-9]*
+.cache/
+.env

@@ -10,7 +10,7 @@ import java.security.MessageDigest
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 
-data class CookieSite(val host: String, val enabled: Boolean)
+data class CookieSite(val host: String, val enabled: Boolean, val status: String = "")
 
 class SiteCookieStore(context: Context) {
     private val directory = File(context.noBackupFilesDir, "site-cookies").apply { mkdirs() }
@@ -26,7 +26,8 @@ class SiteCookieStore(context: Context) {
         directory.listFiles().orEmpty().filter { it.extension == "properties" }.mapNotNull { file ->
             runCatching {
                 val settings = Properties().apply { file.inputStream().use(::load) }
-                CookieSite(settings.getProperty("host"), settings.getProperty("enabled") == "true")
+                val host = settings.getProperty("host")
+                CookieSite(host, settings.getProperty("enabled") == "true", cookieFileStatus(cookieFile(host).readText(), host))
             }.getOrNull()
         }.sortedBy { it.host }
     }
@@ -63,7 +64,8 @@ class SiteCookieStore(context: Context) {
         val source = cookieFile(configured.host)
         if (!source.exists()) return null
         // yt-dlp can modify the jar; use a separate private snapshot for each invocation.
-        File.createTempFile("session-", ".txt", snapshots).also { source.copyTo(it, overwrite = true) }
+        val value = scopedCookieFile(source.readText(), configured.host)
+        File.createTempFile("session-", ".txt", snapshots).also { it.writeText(value) }
     }
 
     private fun name(host: String) = MessageDigest.getInstance("SHA-256").digest(host.toByteArray()).joinToString("") { "%02x".format(it) }
