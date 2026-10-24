@@ -75,6 +75,14 @@ class CookieTests(unittest.TestCase):
                 Bot(object(), cookie_store=store)
             Bot(object(), allowed_users={123}, cookie_store=store)
 
+    def test_enabling_cookies_after_start_cannot_enable_public_account_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CookieStore(Path(directory))
+            bot = Bot(object(), cookie_store=store)
+            store.import_bytes("youtube.com", YOUTUBE)
+            with self.assertRaisesRegex(media.MediaError, "allowlist"):
+                bot.cookie_options()
+
 
 class CookieExtractionTests(unittest.IsolatedAsyncioTestCase):
     async def test_analysis_and_download_receive_scoped_snapshots_and_cleanup(self):

@@ -79,6 +79,13 @@ class Bot:
         self.selections: dict[str, Selection] = {}
         self.slot = asyncio.Semaphore(1)
 
+    def cookie_options(self) -> dict:
+        if self.cookie_store and self.cookie_store.has_enabled() and not self.allowed_users:
+            raise media.MediaError(
+                "Account cookies require an explicit Telegram user allowlist. Stop the bot and set allowed_user_ids."
+            )
+        return {"cookie_store": self.cookie_store} if self.cookie_store else {}
+
     def expire_menus(self, owner: tuple[int, int] | None = None) -> None:
         now = time.monotonic()
         self.selections = {
@@ -202,7 +209,7 @@ class Bot:
         self, url: str, owner: tuple[int, int], status: media.Status, folder: Path
     ) -> None:
         await status("Finding available video qualities…")
-        options = {"cookie_store": self.cookie_store} if self.cookie_store else {}
+        options = self.cookie_options()
         analysis = await media.analyze(
             url, folder, preserve_quality=self.api.local_files, **options
         )
@@ -261,7 +268,7 @@ class Bot:
                 else (f"{quality.height}p" if quality.height else "best available video")
             )
             await status(f"Downloading {choice}…")
-            options = {"cookie_store": self.cookie_store} if self.cookie_store else {}
+            options = self.cookie_options()
             source = await media.download(selection.url, quality, folder, **options)
             if quality.audio_only:
                 audio = await media.prepare_audio(
