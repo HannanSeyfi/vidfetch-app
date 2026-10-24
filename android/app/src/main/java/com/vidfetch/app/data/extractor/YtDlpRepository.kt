@@ -81,6 +81,7 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
         val native = context.applicationInfo.nativeLibraryDir
         addAll(listOf("--no-cache-dir", "--js-runtimes", "quickjs:$native/libqjs-cli.so"))
         addAll(listOf("--ffmpeg-location", "$native/libffmpeg.so"))
+        addAll(listOf("--plugin-dirs", ExtractorRuntime.pluginDirectory(context).absolutePath))
         cookie?.let { addAll(listOf("--cookies", it.absolutePath)) }
         if (chrome) addAll(listOf("--impersonate", "chrome"))
         // Extractors can use curl_cffi themselves; do not force impersonation on every site.

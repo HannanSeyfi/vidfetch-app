@@ -107,13 +107,14 @@ class ExtractorRuntimeTest {
             ExtractorRuntime.python(context, listOf("-c", """
                 import subprocess
                 subprocess.check_call(['$native/libffmpeg.so', '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=320x240:d=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:v', 'libx264', '-c:a', 'aac', '-shortest', '${folder.absolutePath}/source.mp4'])
+                subprocess.check_call(['$native/libffmpeg.so', '-y', '-i', '${folder.absolutePath}/source.mp4', '-c', 'copy', '-hls_time', '1', '-hls_list_size', '0', '${folder.absolutePath}/source.m3u8'])
             """.trimIndent()), backend)
             val script = File(folder, "compatibility_check.py")
             ExtractorInstrumentationRunner.active.context.assets.open("compatibility_check.py").use { input -> script.outputStream().use { input.copyTo(it) } }
             FixtureServer(folder).use { server ->
                 val config = File(folder, "cli.json")
-                suspend fun cli(arguments: List<String>, warning: Boolean = false, failure: Boolean = false, executionBackend: ExtractorBackend = backend): String {
-                    config.writeText(JSONObject().put("arguments", JSONArray(arguments)).put("warning", warning).put("failure", failure).toString())
+                suspend fun cli(arguments: List<String>, warning: Boolean = false, failure: Boolean = false, executionBackend: ExtractorBackend = backend, publicFallback: Boolean = false): String {
+                    config.writeText(JSONObject().put("arguments", JSONArray(arguments)).put("warning", warning).put("failure", failure).put("public_fallback", publicFallback).toString())
                     return ExtractorRuntime.python(context, listOf(script.absolutePath, ExtractorRuntime.engineFile(context).absolutePath,
                         native, "http://127.0.0.1:${server.port}", folder.absolutePath, BuildConfig.BUNDLED_YTDLP_VERSION, config.absolutePath), executionBackend)
                 }
@@ -148,6 +149,13 @@ class ExtractorRuntimeTest {
                 val chromeOutput = File(folder, "reddit-chrome.mp4")
                 val chromeResult = cli(repository.downloadArguments(null, redditUrl, 360, chromeOutput.absolutePath, chrome = true), executionBackend = ExtractorBackend.CURRENT)
                 assertEquals(240, repository.completedDownload(chromeResult, chromeOutput.absolutePath).height)
+                for (attempt in extractionAttempts(redditUrl).take(2)) {
+                    val publicInfo = repository.parseVideoInfo(cli(repository.analysisArguments(null, redditUrl, attempt.chrome), executionBackend = attempt.backend, publicFallback = true))
+                    assertEquals("Public page fixture", publicInfo.title)
+                    val publicFile = File(folder, "public-${attempt.backend}.mp4")
+                    val publicOutput = cli(repository.downloadArguments(null, redditUrl, 360, publicFile.absolutePath, chrome = attempt.chrome), executionBackend = attempt.backend, publicFallback = true)
+                    assertEquals(240, repository.completedDownload(publicOutput, publicFile.absolutePath).height)
+                }
                 val failure = runCatching { cli(repository.analysisArguments(null, redditUrl, chrome = false), warning = true, failure = true) }.exceptionOrNull()
                 assertNotNull(failure)
                 assertTrue(failure!!.message.orEmpty().contains("Private subreddit"))
