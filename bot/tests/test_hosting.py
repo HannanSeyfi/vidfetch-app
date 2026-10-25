@@ -14,6 +14,14 @@ SPEC.loader.exec_module(hosting)
 
 
 class HostingTests(unittest.TestCase):
+    def test_hosted_mode_requires_explicit_owner_ids(self):
+        with patch.dict(os.environ, {}, clear=True):
+            for value in ("", "0", "-1", "not-an-id", "123,", str(2**63)):
+                os.environ["VIDFETCH_ADMIN_USERS"] = value
+                with self.assertRaises(ValueError):
+                    hosting.owner_ids()
+            os.environ["VIDFETCH_ADMIN_USERS"] = "123, 456"
+            self.assertEqual(hosting.owner_ids(), {123, 456})
     def test_missing_or_invalid_secrets_do_not_connect_or_echo_values(self):
         for environment in ({}, {
             "TELEGRAM_BOT_TOKEN": "private-invalid-value",
@@ -71,7 +79,7 @@ class HostingRuntimeTests(unittest.IsolatedAsyncioTestCase):
             patch.object(hosting, "configuration") as config,
             patch.object(hosting, "local_bot_api", local_api),
             patch.object(hosting, "run_bot", AsyncMock()) as bot,
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, {"VIDFETCH_ADMIN_USERS": "123"}, clear=True),
             patch("asyncio.get_running_loop") as get_loop,
         ):
             root = Path(directory)
@@ -83,5 +91,7 @@ class HostingRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(calls[2]["directory"], root / "state/telegram-api/654321")
             self.assertEqual(calls[0]["binary"], root / "api")
             self.assertIs(bot.call_args.kwargs["api"], client)
+            self.assertEqual(bot.call_args.kwargs["access"].owners, {123})
+            self.assertNotIn("cookie_store", bot.call_args.kwargs)
             self.assertEqual(get_loop.return_value.add_signal_handler.call_count, 6)
             self.assertEqual(get_loop.return_value.remove_signal_handler.call_count, 6)

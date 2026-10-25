@@ -1,6 +1,13 @@
-# VidFetch Telegram bot for Colab
+# VidFetch Telegram bot
 
 For a persistent Linux deployment, see [the Botkeep/hosting guide](README.hosting.md).
+
+The hosted entry point is private: the owner approves users with `/allow ID`,
+removes them with `/deny ID`, and lists them with `/users`. Each approved user can
+manage their own YouTube/Reddit cookie exports through `/cookies`. Personal cookie
+stores are isolated by Telegram user ID and are never used for another user's
+downloads. Owner configuration, persistence and cookie handling are documented in
+the hosting guide. The Colab workflow below retains its separate shared-cookie mode.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HannanSeyfi/vidfetch-app/blob/main/bot/VidFetch_Telegram_Colab.ipynb)
 

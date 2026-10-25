@@ -188,6 +188,7 @@ async def local_bot_api(
             migrated.touch(mode=0o600)
         api = Telegram(token, api_root=f"http://127.0.0.1:{port}", local_files=True)
         api.server_process = process
+        api.file_directory = root.resolve()
         yield api
     except OSError:
         raise LocalAPIError(

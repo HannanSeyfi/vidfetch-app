@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
-from pathlib import Path
-from urllib.parse import urlsplit
+from pathlib import Path, PurePosixPath
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -55,6 +55,8 @@ class Telegram:
         self.local_files = local_files
         self.api_root = api_root.rstrip("/")
         self.server_process = None
+        self.file_directory: Path | None = None
+        self._file_url = f"{api_root.rstrip('/')}/file/bot{token}/"
         self.upload_limit = LOCAL_UPLOAD_LIMIT if local_files else CLOUD_UPLOAD_LIMIT
         self._client = httpx.AsyncClient(
             base_url=f"{api_root.rstrip('/')}/bot{token}/",
@@ -112,6 +114,65 @@ class Telegram:
                     files={field: (path.name, stream, content_type)},
                     uploading=True,
                 )
+
+    async def read_document(self, file_id: str, *, max_bytes: int) -> bytes:
+        """Bound incoming cookie data; never log download URLs or expose cached paths."""
+        if not isinstance(file_id, str) or not file_id or len(file_id) > 512 or max_bytes <= 0:
+            raise TelegramError(400, "invalid document")
+        info = await self.call("getFile", {"file_id": file_id})
+        if not isinstance(info, dict):
+            raise TelegramError(400, "invalid document")
+        size = info.get("file_size")
+        if size is not None and (type(size) is not int or not 0 < size <= max_bytes):
+            raise TelegramError(413, "document too large")
+        name = info.get("file_path")
+        if not isinstance(name, str) or not name:
+            raise TelegramError(400, "missing document")
+        if self.local_files:
+            source = None
+            try:
+                candidate = Path(name)
+                if not self.file_directory or not candidate.is_absolute() or candidate.is_symlink():
+                    raise TelegramError(400, "invalid local document")
+                candidate = candidate.resolve()
+                if not candidate.is_relative_to(self.file_directory.resolve()) or not candidate.is_file():
+                    raise TelegramError(400, "invalid local document")
+                relative = candidate.relative_to(self.file_directory.resolve())
+                if len(relative.parts) < 2 or relative.parts[0] == "temp":
+                    raise TelegramError(400, "not a downloaded document")
+                source = candidate
+                with source.open("rb") as stream:
+                    data = stream.read(max_bytes + 1)
+                if not 0 < len(data) <= max_bytes:
+                    raise TelegramError(413, "document too large")
+                return data
+            except OSError:
+                raise TelegramError(0, "document unavailable") from None
+            finally:
+                if source is not None:
+                    try:
+                        source.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+        if PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts or "\\" in name:
+            raise TelegramError(400, "invalid document path")
+        try:
+            async with asyncio.timeout(45):
+                async with self._client.stream("GET", self._file_url + quote(name, safe="/")) as response:
+                    response.raise_for_status()
+                    # Redirects are not downloads and must not forward a credential-bearing request.
+                    if response.status_code != 200:
+                        raise TelegramError(400, "document unavailable")
+                    data = bytearray()
+                    async for chunk in response.aiter_bytes(64 * 1024):
+                        if len(data) + len(chunk) > max_bytes:
+                            raise TelegramError(413, "document too large")
+                        data.extend(chunk)
+                    if not data:
+                        raise TelegramError(400, "empty document")
+                    return bytes(data)
+        except (httpx.HTTPError, TimeoutError, ValueError):
+            raise TelegramError(0, "document unavailable") from None
 
     async def upload_document(self, chat_id: int, path: Path, caption: str) -> None:
         await self.send_file(

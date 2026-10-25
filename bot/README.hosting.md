@@ -21,7 +21,11 @@ hosts without root access. Generated executables are CI artifacts, never Git fil
    without logging its contents or prompting for input. Existing process variables
    take precedence. Do not upload credentials with the deployment ZIP.
 5. Set `VIDFETCH_STORAGE_LIMIT_MB=1024` to match the actual allocated storage in MB.
-   Optionally set `VIDFETCH_ALLOWED_USERS` to comma-separated numeric Telegram IDs.
+   Set **`VIDFETCH_ADMIN_USERS`** to your numeric Telegram user ID (send `/id` to
+   learn it). Multiple trusted owners can be separated by commas. Startup refuses
+   to run without an explicit owner. Owners are always allowed.
+   `VIDFETCH_ALLOWED_USERS` optionally seeds the initial approved user list **once**;
+   later changes are managed through owner commands and persist across restarts.
 6. Stop any previous instance before starting this one. Check Console for the bot
    link, then send `/start`, a public video URL, and select a quality in Telegram.
 
@@ -41,9 +45,53 @@ the allocation as well as the shared filesystem's free space. Large videos may
 require more storage; a 1 GB plan cannot provide the notebook's multi-GB workspace.
 Files are cleaned after each job, but queued jobs and menus do not survive restarts.
 
-Cookies are optional and must be imported separately into a private directory;
-set `VIDFETCH_COOKIE_DIR` and a nonempty `VIDFETCH_ALLOWED_USERS` before enabling
-account cookies. See the main bot README for supported formats and site restrictions.
+## Approve and remove users
+
+The hosted bot is private, including when the approved user list is empty. Only
+owners and approved users can download media or manage cookies. Anyone can use
+`/id` to find their own numeric ID and ask the owner for approval; it grants no access.
+
+Send these commands to the bot from an owner account:
+
+- `/allow 123456789` approves a user. Multiple IDs can be separated by spaces or commas.
+- `/deny 123456789` removes approval, cancels their active/queued requests,
+  invalidates their menus and removes their stored cookie exports from this host.
+- `/users` lists owners and approved IDs. Only owners can use these commands.
+
+Approvals are saved atomically in `.vidfetch/users/<bot-id>/access.json`; a corrupt
+access file stops startup instead of opening public access. At most 200 users can
+be approved on this small personal bot. Owners cannot be removed through `/deny`;
+change `VIDFETCH_ADMIN_USERS` in Environment and restart to change ownership.
+
+## Each user's personal cookies
+
+An approved user sends `/cookies` in a private chat, selects **Import / replace
+YouTube** or **Import / replace Reddit**, and sends their own Netscape-format export
+as a document within ten minutes. Each export is limited to 2 MB, filtered to the
+selected site's domains and stripped of expired entries. The uploaded filename is
+never used as a server path. Invalid exports do not replace a working import.
+
+The same menu shows status and offers enable, disable and confirmed deletion for
+each site. `/cancel` cancels a pending import. Cookie controls and quality menus
+belong to the requesting user and expire; forwarded or altered callbacks cannot
+manage another user's exports. Each extraction gets a temporary private snapshot.
+
+Personal files live under `.vidfetch/users/<bot-id>/cookies/<user-id>/` with private
+directory/file permissions. An empty personal store uses no account cookies;
+**there is no fallback to another user's or a shared host account**.
+`VIDFETCH_COOKIE_DIR` is not used by this hosted entry point. Existing shared
+exports are not automatically assigned or copied to any user; reimport through
+the personal menu. Colab's separate, explicitly allowlisted shared-cookie mode
+continues to work as described in the main bot README.
+
+Cookie files contain signed-in account sessions. Uploads pass through Telegram and
+are stored on this bot's host; server administrators and the hosting provider can
+access server files. The bot does not send cookie values to other users or owners.
+Its local Bot API download cache copy is removed after reading an accepted import;
+the upload message remains in Telegram until its sender removes it. Deleting an
+import or denying access removes the bot's saved exports, not Telegram's copies
+or independent server backups. Only upload sessions belonging to you. See the main
+bot README for export instructions, session expiry and site/network restrictions.
 
 Free hosting availability and plan expiry are controlled by the provider. No
 keepalive or account/resource-limit bypass is used.

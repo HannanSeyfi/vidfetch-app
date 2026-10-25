@@ -12,8 +12,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from vidfetch_bot import media
+from vidfetch_bot.access import AccessStore
 from vidfetch_bot.app import run_bot
-from vidfetch_bot.cookies import CookieStore
+from vidfetch_bot.cookies import UserCookieStores
 from vidfetch_bot.local_api import LocalAPIError, local_bot_api
 from vidfetch_bot.telegram import TelegramError
 
@@ -39,12 +40,21 @@ def configuration():
     return token, api_id, api_hash, {int(value) for value in entries if value}
 
 
+def owner_ids():
+    entries = os.environ.get("VIDFETCH_ADMIN_USERS", "").split(",")
+    if not entries or any(not re.fullmatch(r"[0-9]{1,19}", value.strip()) for value in entries):
+        raise ValueError("Set VIDFETCH_ADMIN_USERS to the bot owner's numeric Telegram ID.")
+    owners = {int(value.strip()) for value in entries}
+    if any(not 0 < value < 2**63 for value in owners):
+        raise ValueError("VIDFETCH_ADMIN_USERS must contain positive Telegram user IDs.")
+    return owners
+
+
 async def serve(binary: Path, state: Path):
     token, api_id, api_hash, users = configuration()
-    cookie_directory = os.environ.get("VIDFETCH_COOKIE_DIR")
-    cookies = CookieStore(Path(cookie_directory)) if cookie_directory else None
-    if cookies and cookies.has_enabled() and not users:
-        raise ValueError("Set VIDFETCH_ALLOWED_USERS before enabling account cookies.")
+    bot_state = state / "users" / token.split(":", 1)[0]
+    access = AccessStore(bot_state / "access.json", owner_ids(), initial_users=users)
+    cookies = UserCookieStores(bot_state / "cookies")
     loop = asyncio.get_running_loop()
     task = asyncio.current_task()
     for name in (signal.SIGTERM, signal.SIGINT):
@@ -54,7 +64,7 @@ async def serve(binary: Path, state: Path):
             token, api_id, api_hash, binary=binary,
             directory=state / "telegram-api" / token.split(":", 1)[0],
         ) as api:
-            await run_bot(token, allowed_users=users, api=api, cookie_store=cookies)
+            await run_bot(token, api=api, access=access, user_cookies=cookies)
     finally:
         for name in (signal.SIGTERM, signal.SIGINT):
             loop.remove_signal_handler(name)
@@ -94,9 +104,13 @@ def main():
             print("Runtime tools and storage checks passed. No Telegram connection was made.")
             return 0
         configuration()
+        owner_ids()
         asyncio.run(serve(binary, state))
     except (ValueError, LocalAPIError, TelegramError, media.MediaError) as error:
         print(str(error))
+        return 1
+    except OSError:
+        print("Could not access the bot's private state. Check storage space and permissions.")
         return 1
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass

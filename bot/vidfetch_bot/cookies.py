@@ -124,6 +124,12 @@ class CookieStore:
     def has_enabled(self) -> bool:
         return any(self._enabled(site) for site in SITES)
 
+    def has_site(self, site: str) -> bool:
+        return self._path(site).is_file()
+
+    def is_enabled(self, site: str) -> bool:
+        return self._enabled(site)
+
     def _enabled(self, site: str) -> bool:
         return self._path(site).is_file() and not (self.directory / f"{site}.disabled").exists()
 
@@ -164,3 +170,29 @@ class CookieStore:
             yield snapshot
         finally:
             snapshot.unlink(missing_ok=True)
+
+
+class UserCookieStores:
+    """Numeric user IDs select private stores; uploaded filenames never select paths."""
+
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.root.chmod(0o700)
+
+    def for_user(self, user_id: int) -> CookieStore:
+        if type(user_id) is not int or not 0 < user_id < 2**63:
+            raise CookieError("A valid Telegram user ID is required.")
+        folder = self.root / str(user_id)
+        if folder.is_symlink() or folder.resolve().parent != self.root:
+            raise CookieError("The personal cookie directory is unavailable.")
+        return CookieStore(folder)
+
+    def forget(self, user_id: int) -> None:
+        store = self.for_user(user_id)
+        for site in SITES:
+            store.delete(site)
+        try:
+            store.directory.rmdir()
+        except OSError:
+            pass  # Only the two known exports/markers are removed; never recurse.

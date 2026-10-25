@@ -81,7 +81,7 @@ class CookieTests(unittest.TestCase):
             bot = Bot(object(), cookie_store=store)
             store.import_bytes("youtube.com", YOUTUBE)
             with self.assertRaisesRegex(media.MediaError, "allowlist"):
-                bot.cookie_options()
+                bot.cookie_options((123, 123))
 
 
 class CookieExtractionTests(unittest.IsolatedAsyncioTestCase):

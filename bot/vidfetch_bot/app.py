@@ -17,7 +17,9 @@ from html import escape
 from pathlib import Path
 
 from . import files, media
-from .cookies import CookieStore
+from .access import AccessStore, valid_id
+from .cookies import CookieStore, UserCookieStores
+from .personal import OWNER_HELP, PersonalControls
 from .telegram import Telegram, TelegramError
 
 HELP = (
@@ -67,19 +69,32 @@ class Bot:
         workspace: Path | None = None,
         max_jobs: int = 5,
         cookie_store: CookieStore | None = None,
+        access: AccessStore | None = None,
+        user_cookies: UserCookieStores | None = None,
     ):
         self.api = api
         self.allowed_users = allowed_users or set()
         if cookie_store and cookie_store.has_enabled() and not self.allowed_users:
             raise ValueError("Set allowed_user_ids before enabling account cookies.")
         self.cookie_store = cookie_store
+        if user_cookies and (not access or cookie_store):
+            raise ValueError("Personal cookies require private access and cannot share a global cookie store.")
+        self.access = access
         self.workspace = workspace
         self.max_jobs = max_jobs
         self.jobs: dict[tuple[int, int], Job] = {}
         self.selections: dict[str, Selection] = {}
         self.slot = asyncio.Semaphore(1)
+        self.controls = PersonalControls(self, access, user_cookies) if user_cookies else None
 
-    def cookie_options(self) -> dict:
+    def is_allowed(self, user_id: int) -> bool:
+        return self.access.allows(user_id) if self.access else not self.allowed_users or user_id in self.allowed_users
+
+    def cookie_options(self, owner: tuple[int, int]) -> dict:
+        if not self.is_allowed(owner[1]):
+            raise media.MediaError("Your access to this bot was removed.")
+        if self.controls:
+            return {"cookie_store": self.controls.stores.for_user(owner[1])}
         if self.cookie_store and self.cookie_store.has_enabled() and not self.allowed_users:
             raise media.MediaError(
                 "Account cookies require an explicit Telegram user allowlist. Stop the bot and set allowed_user_ids."
@@ -102,29 +117,45 @@ class Bot:
         message = callback.get("message", {}) if callback else update.get("message", {})
         user = callback.get("from", {}) if callback else message.get("from", {})
         chat = message.get("chat", {})
-        if not user.get("id") or not chat.get("id"):
+        if not valid_id(user.get("id")) or not chat.get("id"):
             return
         if chat.get("type") != "private":
             if callback:
                 await self.api.acknowledge(callback["id"], "Use the bot in a private chat.")
             return
         owner = (chat["id"], user["id"])
-        if self.allowed_users and user["id"] not in self.allowed_users:
+        text = (message.get("text") or "").strip()
+        command = text.split(maxsplit=1)[0].split("@")[0].lower() if text else ""
+        if not callback and command == "/id":
+            await self.api.message(chat["id"], f"Your Telegram user ID: {user['id']}")
+            return
+        if not self.is_allowed(user["id"]):
             if callback:
                 await self.api.acknowledge(callback["id"], "This bot is private.")
             else:
-                await self.api.message(chat["id"], "This bot is private.")
+                await self.api.message(
+                    chat["id"], "This bot is private. Ask its owner for approval. Use /id to find your Telegram user ID."
+                    if self.access else "This bot is private."
+                )
             return
         if callback:
-            await self.choose(callback, owner)
+            if self.controls and callback.get("data", "").startswith("c:"):
+                await self.controls.callback(callback, owner)
+            else:
+                await self.choose(callback, owner)
             return
-        text = (message.get("text") or "").strip()
-        command = text.split(maxsplit=1)[0].split("@")[0].lower() if text else ""
+        if self.controls and await self.controls.admin(owner, text or " "):
+            return
+        if self.controls and message.get("document"):
+            await self.controls.document(message, owner)
+            return
         if command in {"/start", "/help"}:
-            await self.api.message(chat["id"], HELP)
-        elif command == "/id":
-            await self.api.message(chat["id"], f"Your Telegram user ID: {user['id']}")
+            extra = OWNER_HELP if self.access and user["id"] in self.access.owners else ""
+            await self.api.message(chat["id"], HELP + extra)
         elif command == "/cookies":
+            if self.controls:
+                await self.controls.show(owner)
+                return
             await self.api.message(
                 chat["id"],
                 self.cookie_store.status()
@@ -132,6 +163,9 @@ class Bot:
                 else "No imported cookies. Configure optional cookies on the bot host.",
             )
         elif command == "/cancel":
+            if self.controls:
+                self.controls.pending.pop(owner, None)
+                self.controls.expire(owner)
             self.expire_menus(owner)
             job = self.jobs.get(owner)
             if job:
@@ -157,6 +191,9 @@ class Bot:
     async def schedule(
         self, owner: tuple[int, int], action: Callable, *, status_message: dict | None = None
     ) -> bool:
+        if not self.is_allowed(owner[1]):
+            await self.api.message(owner[0], "This bot is private.")
+            return False
         if owner in self.jobs:
             await self.api.message(
                 owner[0], "You already have a request. Use /cancel before starting another."
@@ -178,6 +215,9 @@ class Bot:
             try:
                 await status("Waiting in the queue…")
                 async with self.slot:
+                    if not self.is_allowed(owner[1]):
+                        await status("Your access to this bot was removed.")
+                        return
                     with tempfile.TemporaryDirectory(
                         prefix="vidfetch-", dir=self.workspace
                     ) as folder:
@@ -209,7 +249,7 @@ class Bot:
         self, url: str, owner: tuple[int, int], status: media.Status, folder: Path
     ) -> None:
         await status("Finding available video qualities…")
-        options = self.cookie_options()
+        options = self.cookie_options(owner)
         analysis = await media.analyze(
             url, folder, preserve_quality=self.api.local_files, **options
         )
@@ -268,7 +308,7 @@ class Bot:
                 else (f"{quality.height}p" if quality.height else "best available video")
             )
             await status(f"Downloading {choice}…")
-            options = self.cookie_options()
+            options = self.cookie_options(owner)
             source = await media.download(selection.url, quality, folder, **options)
             if quality.audio_only:
                 audio = await media.prepare_audio(
@@ -367,6 +407,15 @@ class Bot:
             f"Sent all {count} parts and the joiner. Download them together to restore the file."
         )
 
+    async def cancel_user(self, user_id: int) -> None:
+        self.selections = {key: menu for key, menu in self.selections.items() if menu.owner[1] != user_id}
+        if self.controls:
+            self.controls.forget_controls(user_id)
+        tasks = [job.task for owner, job in self.jobs.items() if owner[1] == user_id]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     async def close(self) -> None:
         tasks = [job.task for job in self.jobs.values()]
         for task in tasks:
@@ -374,6 +423,9 @@ class Bot:
         await asyncio.gather(*tasks, return_exceptions=True)
         self.jobs.clear()
         self.selections.clear()
+        if self.controls:
+            self.controls.menus.clear()
+            self.controls.pending.clear()
 
 
 async def run_bot(
@@ -382,6 +434,8 @@ async def run_bot(
     allowed_users: set[int] | None = None,
     api: Telegram | None = None,
     cookie_store: CookieStore | None = None,
+    access: AccessStore | None = None,
+    user_cookies: UserCookieStores | None = None,
 ) -> None:
     """Await directly in Colab; interrupt the running cell to shut down cleanly."""
     if not re.fullmatch(r"\d{5,20}:[A-Za-z0-9_-]{20,}", token.strip()):
@@ -401,7 +455,7 @@ async def run_bot(
             return
     owns_api = api is None
     api = api or Telegram(token.strip())
-    bot = Bot(api, allowed_users=allowed_users, cookie_store=cookie_store)
+    bot = Bot(api, allowed_users=allowed_users, cookie_store=cookie_store, access=access, user_cookies=user_cookies)
     try:
         identity = await api.call("getMe")
         await api.call("deleteWebhook", {"drop_pending_updates": False})
@@ -413,7 +467,7 @@ async def run_bot(
                     {"command": "cancel", "description": "Cancel your current request"},
                     {"command": "status", "description": "Show request status"},
                     {"command": "id", "description": "Show your Telegram user ID"},
-                    {"command": "cookies", "description": "Show site cookie status"},
+                    {"command": "cookies", "description": "Manage your personal site cookies" if user_cookies else "Show site cookie status"},
                     {"command": "help", "description": "Show instructions"},
                 ]
             },
@@ -423,6 +477,11 @@ async def run_bot(
             "Open that bot in Telegram and send /start, then a video link.\n"
             "Keep this process running. Stop it before starting another copy."
         )
+        if access:
+            print(
+                f"Private access enabled: {len(access.owners)} owner(s), {len(access.users)} approved user(s). "
+                "Personal cookie controls are available through /cookies."
+            )
         async for update in api.poll():
             try:
                 await bot.handle(update)

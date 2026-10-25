@@ -12,6 +12,69 @@ from vidfetch_bot.telegram import LOCAL_UPLOAD_LIMIT, Telegram, TelegramError
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_incoming_cookie_file_is_bounded_and_cache_copy_is_removed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            api = Telegram("unused", api_root="http://127.0.0.1:8081", local_files=True)
+            api.file_directory = root / "server"
+            api.file_directory.mkdir()
+            path = api.file_directory / "bot/documents/document.txt"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"private-cookie")
+            api.call = AsyncMock(return_value={"file_path": str(path), "file_size": 14})
+            try:
+                self.assertEqual(await api.read_document("file", max_bytes=20), b"private-cookie")
+                self.assertFalse(path.exists())
+                path.write_bytes(b"private-cookie" * 10)
+                api.call.return_value = {"file_path": str(path), "file_size": 2}
+                with self.assertRaises(TelegramError):
+                    await api.read_document("file", max_bytes=20)
+                self.assertFalse(path.exists())
+                outside = root / "secret.txt"
+                outside.write_bytes(b"must-not-read-or-delete")
+                api.call.return_value = {"file_path": str(outside), "file_size": 2}
+                with self.assertRaises(TelegramError):
+                    await api.read_document("file", max_bytes=20)
+                self.assertTrue(outside.exists())
+                protected = api.file_directory / "state.binlog"
+                protected.write_bytes(b"authorization-state")
+                api.call.return_value = {"file_path": str(protected), "file_size": 2}
+                with self.assertRaises(TelegramError):
+                    await api.read_document("file", max_bytes=20)
+                self.assertTrue(protected.exists())
+            finally:
+                await api.close()
+
+    async def test_cloud_incoming_cookie_stream_is_bounded_and_rejects_redirects_and_traversal(self):
+        requests = []
+        result = {"file_path": "documents/cookies.txt", "file_size": 2}
+        status = 200
+
+        def transport(request):
+            requests.append(request)
+            if request.method == "POST":
+                return httpx.Response(200, json={"ok": True, "result": result})
+            return httpx.Response(status, content=b"private-cookie", headers={"location": "https://untrusted.invalid"})
+
+        api = Telegram("private-test-token", transport=httpx.MockTransport(transport))
+        try:
+            self.assertEqual(await api.read_document("file", max_bytes=20), b"private-cookie")
+            with self.assertRaises(TelegramError) as error:
+                await api.read_document("file", max_bytes=3)
+            self.assertNotIn("private", str(error.exception))
+            status = 302
+            with self.assertRaises(TelegramError):
+                await api.read_document("file", max_bytes=20)
+            self.assertTrue(all(request.url.host == "api.telegram.org" for request in requests))
+            for name in ("../private", "/etc/passwd", "documents\\private"):
+                result["file_path"] = name
+                before = len(requests)
+                with self.assertRaises(TelegramError):
+                    await api.read_document("file", max_bytes=20)
+                self.assertEqual(len(requests), before + 1)
+        finally:
+            await api.close()
+
     async def test_local_server_exit_stops_polling_instead_of_retrying_forever(self):
         api = Telegram("unused", api_root="http://127.0.0.1:8081", local_files=True)
         api.server_process = SimpleNamespace(returncode=1)
