@@ -27,7 +27,10 @@ hosts without root access. Generated executables are CI artifacts, never Git fil
 
 `python main.py --check` checks tools and free storage without contacting Telegram.
 The local API data and temporary downloads stay under `.vidfetch/` on the server.
-Normal shutdown stops both processes. Do not share `.env`, `.vidfetch/`, an SFTP
+Normal shutdown stops both processes. To replace credentials later, edit the secret
+values in Environment and restart. A different bot ID gets its own authorization
+directory and hosted-API migration marker; rotating a token for the same bot keeps
+its existing session directory. Do not share `.env`, `.vidfetch/`, an SFTP
 password, or server backups: these may contain authorization state.
 
 This uses Telegram's local API and preserves original quality, including the

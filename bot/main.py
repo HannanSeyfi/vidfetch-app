@@ -51,7 +51,8 @@ async def serve(binary: Path, state: Path):
         loop.add_signal_handler(name, task.cancel)
     try:
         async with local_bot_api(
-            token, api_id, api_hash, binary=binary, directory=state / "telegram-api"
+            token, api_id, api_hash, binary=binary,
+            directory=state / "telegram-api" / token.split(":", 1)[0],
         ) as api:
             await run_bot(token, allowed_users=users, api=api, cookie_store=cookies)
     finally:

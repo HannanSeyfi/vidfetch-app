@@ -68,16 +68,20 @@ class HostingRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             tempfile.TemporaryDirectory() as directory,
-            patch.object(hosting, "configuration", return_value=("token", "12345", "hash", {123})),
+            patch.object(hosting, "configuration") as config,
             patch.object(hosting, "local_bot_api", local_api),
             patch.object(hosting, "run_bot", AsyncMock()) as bot,
             patch.dict(os.environ, {}, clear=True),
             patch("asyncio.get_running_loop") as get_loop,
         ):
             root = Path(directory)
-            await hosting.serve(root / "api", root / "state")
-            self.assertEqual(calls[0]["directory"], root / "state/telegram-api")
+            for token in ("123456:first", "123456:rotated", "654321:another"):
+                config.return_value = (token, "12345", "hash", {123})
+                await hosting.serve(root / "api", root / "state")
+            self.assertEqual(calls[0]["directory"], root / "state/telegram-api/123456")
+            self.assertEqual(calls[0]["directory"], calls[1]["directory"])
+            self.assertEqual(calls[2]["directory"], root / "state/telegram-api/654321")
             self.assertEqual(calls[0]["binary"], root / "api")
             self.assertIs(bot.call_args.kwargs["api"], client)
-            self.assertEqual(get_loop.return_value.add_signal_handler.call_count, 2)
-            self.assertEqual(get_loop.return_value.remove_signal_handler.call_count, 2)
+            self.assertEqual(get_loop.return_value.add_signal_handler.call_count, 6)
+            self.assertEqual(get_loop.return_value.remove_signal_handler.call_count, 6)
