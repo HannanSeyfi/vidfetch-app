@@ -11,7 +11,10 @@ hosts without root access. Generated executables are CI artifacts, never Git fil
 
 1. Create an Application / Python 3.12 server. Assign 1 GB RAM, 100% CPU and at least
    1 GB storage. Physical free capacity can differ from the account allowance.
-2. Upload and extract the ZIP into the server root. Keep a source copy outside the host.
+2. Transfer and extract the ZIP into the server root. Botkeep's browser uploader has
+   a 4 MB per-file limit; use SFTP for the complete ZIP, or upload smaller numbered
+   parts and reassemble them with a checksum-verified installer. Keep a source copy
+   outside the host.
 3. Use startup command `pip install --no-cache-dir --pre -r requirements.txt && python -u main.py`.
 4. In **Environment**, add `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_ID` and
    `TELEGRAM_API_HASH` as secrets. The entry point loads Botkeep's managed `.env`
