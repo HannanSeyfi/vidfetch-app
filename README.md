@@ -15,11 +15,11 @@ This APK is for most current Android phones (`arm64-v8a`). Version 0.3.9 adds a 
 | Android | In development |
 | iOS | Planned |
 | Windows | Planned |
-| [<img src=".github/assets/telegram.svg" width="18" height="18" alt="" /> Telegram bot · @VidFetchRobot](https://t.me/VidFetchRobot) | Runs during active Colab sessions |
+| [<img src=".github/assets/telegram.svg" width="18" height="18" alt="" /> Telegram bot · @VidFetchRobot](https://t.me/VidFetchRobot) | Persistent Linux hosting or active Colab sessions |
 
 ## Telegram companion
 
-The separate [Telegram bot](bot/README.md) runs from a self-contained Colab notebook alongside Telegram's official local Bot API server. Enter a bot token plus Telegram application credentials, send a link, and choose a video quality or Audio only. Original quality is preserved without a 50 MB compression requirement; files above the conservative 1,950 MB per-file ceiling are delivered in numbered parts with a verified joiner. The notebook supports optional private YouTube/Reddit cookies with import, replace, enable, disable and delete controls. Account cookies require an explicit Telegram user allowlist. [Open the latest notebook](https://colab.research.google.com/github/HannanSeyfi/vidfetch-app/blob/main/bot/VidFetch_Telegram_Colab.ipynb). Colab sessions are temporary; see the bot documentation for setup and limits. The Android app continues to process downloads on-device independently.
+The separate [Telegram bot](bot/README.md) runs alongside Telegram's official local Bot API server on a persistent Linux host or in a self-contained Colab notebook. Send a link and choose a video quality or Audio only. Original quality is preserved without a 50 MB compression requirement; files above the conservative 1,950 MB per-file ceiling are delivered in numbered parts with a verified joiner, subject to available host storage. The [hosted private bot](bot/README.hosting.md) has owner-managed user approval and personal YouTube/Reddit cookie imports for each approved user. The notebook retains its separate allowlisted shared-cookie controls. [Open the latest notebook](https://colab.research.google.com/github/HannanSeyfi/vidfetch-app/blob/main/bot/VidFetch_Telegram_Colab.ipynb). Colab sessions are temporary; see the bot documentation for setup and limits. The Android app continues to process downloads on-device independently.
 
 ## Repository layout
 
