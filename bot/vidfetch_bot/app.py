@@ -26,7 +26,7 @@ HELP = (
     "Original quality is preserved with the local Telegram server. Files above its per-file limit "
     "are delivered as numbered parts with a verified Python joiner. Download every part to rejoin.\n\n"
     "Sizes are estimates. "
-    "Only one request is processed at a time in this Colab session.\n\n"
+    "Only one request is processed at a time by this bot.\n\n"
     "/cancel — cancel your current request\n/status — show your request status\n"
     "/id — show your Telegram user ID\n/cookies — show site cookie status\n/help — show these instructions"
 )
@@ -129,7 +129,7 @@ class Bot:
                 chat["id"],
                 self.cookie_store.status()
                 if self.cookie_store
-                else "No imported cookies. Configure optional cookies in the notebook.",
+                else "No imported cookies. Configure optional cookies on the bot host.",
             )
         elif command == "/cancel":
             self.expire_menus(owner)
@@ -421,7 +421,7 @@ async def run_bot(
         print(
             f"VidFetch is running: https://t.me/{identity['username']}\n"
             "Open that bot in Telegram and send /start, then a video link.\n"
-            "Keep this cell running. Use its stop button to stop the bot."
+            "Keep this process running. Stop it before starting another copy."
         )
         async for update in api.poll():
             try:
@@ -437,4 +437,4 @@ async def run_bot(
         await bot.close()
         if owns_api:
             await api.close()
-        print("VidFetch stopped. Run this cell again to restart it.")
+        print("VidFetch stopped. Start the process again to restart it.")

@@ -1,5 +1,7 @@
 # VidFetch Telegram bot for Colab
 
+For a persistent Linux deployment, see [the Botkeep/hosting guide](README.hosting.md).
+
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HannanSeyfi/vidfetch-app/blob/main/bot/VidFetch_Telegram_Colab.ipynb)
 
 VidFetch downloads video and audio in Colab and delivers the selected quality through Telegram. The notebook runs both the Python bot and Telegram's official Bot API server on the **Colab machine**, using its internet connection. No home server, public IP, domain, tunnel, Google Drive mount, or GPU is needed.

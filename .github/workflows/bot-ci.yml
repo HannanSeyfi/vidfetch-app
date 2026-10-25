@@ -35,11 +35,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          python -m pip install --upgrade --pre -r requirements.txt
+          python -m pip install --upgrade --pre -r requirements-hosting.txt
           python -m pip install ruff nbformat
       - name: Check source and notebook
         run: |
-          ruff check vidfetch_bot tests tools
+          ruff check main.py vidfetch_bot tests tools
           python tools/build_notebook.py --check
       - name: Exercise conversations, downloads, original quality and split delivery
         run: python -m unittest discover -s tests -v
@@ -66,3 +66,10 @@ jobs:
           key: telegram-api-ubuntu24-${{ runner.arch }}-${{ steps.server.outputs.revision }}
       - name: Build and smoke-test Telegram's official server
         run: PYTHONPATH=. python tools/check_api_server.py
+      - name: Package the official server for persistent Linux hosting
+        run: PYTHONPATH=. python tools/package_hosting.py dist/vidfetch-botkeep-linux-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vidfetch-botkeep-linux-x64
+          path: bot/dist/vidfetch-botkeep-linux-x64.zip
+          retention-days: 14

@@ -27,6 +27,28 @@ AUDIO_BITRATE = 192_000
 Status = Callable[[str], Awaitable[None]]
 
 
+@dataclass(frozen=True)
+class StorageBudget:
+    """Account for a hosting quota even when statvfs reports the entire shared disk."""
+
+    root: Path
+    limit: int
+
+    def free(self) -> int:
+        used = 0
+        for path in self.root.rglob("*"):
+            try:
+                if path.is_file():
+                    used += path.stat().st_size
+            except FileNotFoundError:
+                # A concurrent upload or cleanup can remove a temporary file.
+                continue
+        return self.limit - used
+
+
+STORAGE_BUDGET: StorageBudget | None = None
+
+
 class MediaError(Exception):
     """A safe, actionable message that can be displayed in Telegram."""
 
@@ -81,6 +103,10 @@ def tool_error(log: str, args: list[str]) -> MediaError:
 
 
 def check_disk(folder: Path) -> None:
+    if STORAGE_BUDGET and STORAGE_BUDGET.free() < MIN_FREE_BYTES:
+        raise MediaError(
+            "This host is running out of its storage allowance. Choose a smaller quality or file."
+        )
     if shutil.disk_usage(folder).free < MIN_FREE_BYTES:
         raise MediaError(
             "This session is running out of disk space. Try a smaller quality or restart."
