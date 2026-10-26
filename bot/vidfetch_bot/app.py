@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import files, media
 from .access import AccessStore, valid_id
+from .cookie_routing import RoutedCookieStore
 from .cookies import CookieStore, UserCookieStores
 from .personal import OWNER_HELP, PersonalControls
 from .telegram import Telegram, TelegramError
@@ -32,6 +33,7 @@ HELP = (
     "/cancel — cancel your current request\n/status — show your request status\n"
     "/id — show your Telegram user ID\n/cookies — show site cookie status\n/help — show these instructions"
 )
+PRIVATE_NOTICE = "This bot is private. Contact @sorrow_climax for approval. Send /id and include your Telegram user ID."
 
 
 def delivery_caption(title: str, details: str, url: str) -> str:
@@ -94,7 +96,7 @@ class Bot:
         if not self.is_allowed(owner[1]):
             raise media.MediaError("Your access to this bot was removed.")
         if self.controls:
-            return {"cookie_store": self.controls.stores.for_user(owner[1])}
+            return {"cookie_store": RoutedCookieStore(self.access, self.controls.stores, owner[1])}
         if self.cookie_store and self.cookie_store.has_enabled() and not self.allowed_users:
             raise media.MediaError(
                 "Account cookies require an explicit Telegram user allowlist. Stop the bot and set allowed_user_ids."
@@ -131,10 +133,10 @@ class Bot:
             return
         if not self.is_allowed(user["id"]):
             if callback:
-                await self.api.acknowledge(callback["id"], "This bot is private.")
+                await self.api.acknowledge(callback["id"], "This bot is private. Contact @sorrow_climax for approval." if self.access else "This bot is private.")
             else:
                 await self.api.message(
-                    chat["id"], "This bot is private. Ask its owner for approval. Use /id to find your Telegram user ID."
+                    chat["id"], PRIVATE_NOTICE
                     if self.access else "This bot is private."
                 )
             return
@@ -149,12 +151,18 @@ class Bot:
         if self.controls and message.get("document"):
             await self.controls.document(message, owner)
             return
+        if self.controls and await self.controls.domain_message(owner, text):
+            return
         if command in {"/start", "/help"}:
             extra = OWNER_HELP if self.access and user["id"] in self.access.owners else ""
             await self.api.message(chat["id"], HELP + extra)
         elif command == "/cookies":
             if self.controls:
-                await self.controls.show(owner)
+                argument = text.split(maxsplit=1)
+                if len(argument) == 2:
+                    await self.controls.start_import(owner, argument[1])
+                else:
+                    await self.controls.show(owner)
                 return
             await self.api.message(
                 chat["id"],
@@ -165,6 +173,7 @@ class Bot:
         elif command == "/cancel":
             if self.controls:
                 self.controls.pending.pop(owner, None)
+                self.controls.pending_domain.pop(owner, None)
                 self.controls.expire(owner)
             self.expire_menus(owner)
             job = self.jobs.get(owner)
@@ -192,7 +201,7 @@ class Bot:
         self, owner: tuple[int, int], action: Callable, *, status_message: dict | None = None
     ) -> bool:
         if not self.is_allowed(owner[1]):
-            await self.api.message(owner[0], "This bot is private.")
+            await self.api.message(owner[0], PRIVATE_NOTICE if self.access else "This bot is private.")
             return False
         if owner in self.jobs:
             await self.api.message(
@@ -426,6 +435,7 @@ class Bot:
         if self.controls:
             self.controls.menus.clear()
             self.controls.pending.clear()
+            self.controls.pending_domain.clear()
 
 
 async def run_bot(
@@ -480,7 +490,7 @@ async def run_bot(
         if access:
             print(
                 f"Private access enabled: {len(access.owners)} owner(s), {len(access.users)} approved user(s). "
-                "Personal cookie controls are available through /cookies."
+                "Website cookie imports: /cookies DOMAIN. Owner cookie sharing: /sharecookies and /unsharecookies."
             )
         async for update in api.poll():
             try:

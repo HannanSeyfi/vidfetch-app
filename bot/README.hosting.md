@@ -57,32 +57,65 @@ Send these commands to the bot from an owner account:
 - `/deny 123456789` removes approval, cancels their active/queued requests,
   invalidates their menus and removes their stored cookie exports from this host.
 - `/users` lists owners and approved IDs. Only owners can use these commands.
+- `/sharecookies 123456789` lets an **already approved** user use the issuing
+  owner's entire cookie set, including future imports. They do not need to import
+  anything. `/sharecookies 123456789 example.com` grants just that website.
+- `/unsharecookies 123456789` removes all cookie sharing for that user without
+  removing bot access. Add a domain to remove sharing just for that site, including
+  an exception to a whole-set grant. `/deny` removes both access and sharing.
 
-Approvals are saved atomically in `.vidfetch/users/<bot-id>/access.json`; a corrupt
+Blocked users are directed to **@sorrow_climax** for approval, with `/id` available
+to find their own numeric ID.
+
+Approvals and cookie-sharing grants are saved atomically in `.vidfetch/users/<bot-id>/access.json`; a corrupt
 access file stops startup instead of opening public access. At most 200 users can
 be approved on this small personal bot. Owners cannot be removed through `/deny`;
 change `VIDFETCH_ADMIN_USERS` in Environment and restart to change ownership.
 
 ## Each user's personal cookies
 
-An approved user sends `/cookies` in a private chat, selects **Import / replace
-YouTube** or **Import / replace Reddit**, and sends their own Netscape-format export
-as a document within ten minutes. Each export is limited to 2 MB, filtered to the
-selected site's domains and stripped of expired entries. The uploaded filename is
-never used as a server path. Invalid exports do not replace a working import.
+An approved user sends **`/cookies example.com`** in a private chat, then sends
+their own Netscape-format export as a document within ten minutes. Alternatively,
+send `/cookies`, choose **Add another site**, enter the domain and upload the file.
+YouTube and Reddit retain their convenient buttons and short-link aliases.
+
+Each export is limited to 2 MB, filtered to the selected domain and its subdomains,
+and stripped of expired entries. Domain input accepts international names, while
+IP addresses, public suffixes such as `com`/`co.uk`, URL credentials and paths are
+rejected. Use the account's parent domain (such as `example.com`) if the export
+contains parent-domain cookies. The bundled Public Suffix List is used offline.
+The uploaded filename never selects a server path. Invalid exports do not replace
+a working import. A user can keep up to 25 site exports; menus are paginated.
 
 The same menu shows status and offers enable, disable and confirmed deletion for
-each site. `/cancel` cancels a pending import. Cookie controls and quality menus
+each site. Removing a site's export removes it from the user's custom-site list.
+`/cancel` cancels a pending domain prompt or file import. Cookie controls and quality menus
 belong to the requesting user and expire; forwarded or altered callbacks cannot
 manage another user's exports. Each extraction gets a temporary private snapshot.
 
 Personal files live under `.vidfetch/users/<bot-id>/cookies/<user-id>/` with private
-directory/file permissions. An empty personal store uses no account cookies;
-**there is no fallback to another user's or a shared host account**.
+directory/file permissions. The most-specific matching saved domain is selected.
+An empty personal store uses no account cookies. Other users' cookies are used
+**only after an explicit owner grant**; recipients cannot read, replace or delete
+the owner's exports through their cookie menus.
+
+For a per-site grant, owner cookies override the recipient's personal cookies for
+that domain. Missing, disabled, expired or invalid owner exports produce an error
+instead of switching to a different account. In entire-set mode, sites with no
+owner export use guest access; personal exports are not silently substituted.
+The cookie menu displays the effective source. Sharing changes cancel existing
+recipient jobs and invalidate their menus. Replacing, disabling or deleting an
+owner export also cancels dependent requests. No cookie values or files are sent
+to recipients. Existing approvals and exports survive the access-file migration.
 `VIDFETCH_COOKIE_DIR` is not used by this hosted entry point. Existing shared
 exports are not automatically assigned or copied to any user; reimport through
 the personal menu. Colab's separate, explicitly allowlisted shared-cookie mode
 continues to work as described in the main bot README.
+
+Cookies authorize whatever content the signed-in account can access through the
+downloader. Share them only with trusted approved users. A custom cookie domain
+does not add a new yt-dlp extractor or guarantee that the site's authentication,
+network restrictions or media formats will work.
 
 Cookie files contain signed-in account sessions. Uploads pass through Telegram and
 are stored on this bot's host; server administrators and the hosting provider can

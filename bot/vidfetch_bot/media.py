@@ -80,14 +80,14 @@ def tool_error(log: str, args: list[str]) -> MediaError:
     if site == "reddit.com" and blocked:
         return MediaError(
             "Reddit rejected this session or connection. Import fresh reddit.com cookies from "
-            "Chrome in the notebook, then send the full post link again. If it still fails, "
+            "Chrome, then send the full post link again. If it still fails, "
             "Reddit may be rejecting this host's network.",
             retryable=True,
         )
     if any(item in detail for item in ("sign in", "login", "authentication", "not a bot")):
         return MediaError(
             "This site requires verification or rejected the session. Import or replace its "
-            "cookies in the notebook, then send the link again. The site may also reject "
+            "cookies, then send the link again. The site may also reject "
             "the host's network."
         )
     if blocked:

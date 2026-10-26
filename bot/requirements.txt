@@ -1,3 +1,4 @@
 httpx==0.28.1
 yt-dlp[default,curl-cffi]>=2026.10.23.233055.dev0
 deno>=2.3,<3
+publicsuffixlist==1.1.2.20261023
