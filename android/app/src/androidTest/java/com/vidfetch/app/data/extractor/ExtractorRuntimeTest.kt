@@ -20,6 +20,7 @@ class ExtractorRuntimeTest {
     @Test fun youtubeSeparateStreamsPublishOnlyCompletedVideo() { checkYoutubeSeparateStreams() }
     @Test fun downloadsReflectCopiedMovedRestoredAndDeletedFiles() { checkDownloadsFolderContents() }
     @Test fun sharedLinkAudioSelectionDownloadsThroughService() { checkSharedLinkAudioDownload() }
+    @Test fun parallelRequestsAndCancellationAreIsolated() { checkParallelProcessesAndCancellation() }
 
     @Test fun mediaProcessesDoNotInheritPythonLibraries() = runBlocking {
         for (backend in ExtractorBackend.entries) {

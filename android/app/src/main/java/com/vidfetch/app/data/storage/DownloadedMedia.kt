@@ -140,7 +140,20 @@ class DownloadedMediaRepository(private val context: Context) {
         return folder
     }
 
-    fun publish(file: File) {
+    fun publish(file: File, checkCancelled: () -> Unit = {}) {
+        fun copy(stream: java.io.OutputStream) {
+            file.inputStream().use { input ->
+                val buffer = ByteArray(65536)
+                while (true) {
+                    checkCancelled()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    stream.write(buffer, 0, count)
+                }
+                checkCancelled()
+            }
+        }
+        checkCancelled()
         if (Build.VERSION.SDK_INT >= 29) {
             val displayName = uniqueName(file.name, list().mapTo(HashSet()) { it.title })
             val values = ContentValues().apply {
@@ -153,7 +166,7 @@ class DownloadedMediaRepository(private val context: Context) {
                 ?: error("Could not create a Downloads entry.")
             try {
                 val output = resolver.openOutputStream(uri) ?: error("Could not open the Downloads entry.")
-                output.use { stream -> file.inputStream().use { it.copyTo(stream) } }
+                output.use(::copy)
                 values.clear()
                 values.put(MediaStore.Downloads.IS_PENDING, 0)
                 check(resolver.update(uri, values, null, null) > 0) { "Could not finalize the download." }
@@ -163,10 +176,9 @@ class DownloadedMediaRepository(private val context: Context) {
             }
         } else {
             check(directory.isDirectory || directory.mkdirs()) { "Could not create Downloads/VidFetch." }
-            val target = uniqueFile(directory, file.name)
-            check(target.createNewFile()) { "Could not reserve a file in Downloads/VidFetch." }
+            val target = reserveDownloadFile(directory, file.name)
             try {
-                target.outputStream().use { stream -> file.inputStream().use { it.copyTo(stream) } }
+                target.outputStream().use(::copy)
             } catch (error: Exception) {
                 target.delete()
                 throw error
@@ -248,6 +260,13 @@ internal fun uniqueFile(directory: File, name: String): File {
     return generateSequence(2) { it + 1 }
         .map { File(directory, "$base ($it)${if (extension.isEmpty()) "" else ".$extension"}") }
         .first { !it.exists() }
+}
+
+internal fun reserveDownloadFile(directory: File, name: String): File {
+    while (true) {
+        val target = uniqueFile(directory, name)
+        if (target.createNewFile()) return target
+    }
 }
 
 internal fun uniqueName(name: String, existing: Set<String>): String {

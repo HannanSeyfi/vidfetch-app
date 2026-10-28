@@ -1,6 +1,14 @@
 # VidFetch for Android
 
-Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.3.9 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
+Native Kotlin/Jetpack Compose implementation for Android 7.0+ (minSdk 24), compiled and targeted at API 36. Version 0.4.0 uses a ViewModel, a foreground download service, and local on-device extraction through `YtDlpRepository`.
+
+## Downloads and home-screen widget
+
+Two downloads run at once; further downloads wait for a slot. Home and Downloads show each transfer's title, chosen quality, progress, queued/saving state, and its own Cancel button. You can analyze another link and add another video or audio download while transfers continue. Notification controls also cancel individual downloads. Cancelling one transfer stops its extractor and media subprocesses, removes temporary files and any unfinished public Downloads entry, and leaves the other transfers running. Completed and failed transfers remain visible in the current process; saved files remain available after restarting the app. Files with the same name are saved separately.
+
+Long-press the Android home screen, choose Widgets, and add **VidFetch · Paste link**. Copy a video link and tap **Paste link** to open a compact native window with the copied text, Analyze, quality selection and Download controls. Clipboard reading happens once the window has focus. Android widgets cannot contain normal editable text fields. The window can be closed while downloads continue in the foreground service.
+
+Runtime initialization is synchronized, while extraction processes can run concurrently in separate sessions. Extractor updates wait for running operations to finish. The device test suite verifies that cancelling an interpreter stops its child process while another request survives, under both packaged interpreters.
 
 ## Multi-site extraction
 
