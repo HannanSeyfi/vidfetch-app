@@ -1,0 +1,6 @@
+<resources>
+    <string name="widget_name">VidFetch · Paste link</string>
+    <string name="widget_title">VidFetch</string>
+    <string name="widget_hint">Copy a video link, then tap below</string>
+    <string name="widget_paste">Paste link</string>
+</resources>

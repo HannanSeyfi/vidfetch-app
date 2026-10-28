@@ -2,12 +2,15 @@ package com.vidfetch.app.data.extractor
 
 import android.content.Context
 import android.system.Os
+import android.system.OsConstants
 import com.vidfetch.app.BuildConfig
 import com.vidfetch.app.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -17,25 +20,32 @@ import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 /** APK-installed native executables; private, non-backed-up Python data and shared libraries. */
 internal object ExtractorRuntime {
     private val mutex = Mutex()
+    private val updateMutex = Mutex()
+    private val operations = Semaphore(4)
     private var initialized = false
     private var compatibilityInitialized = false
 
     suspend fun run(context: Context, arguments: List<String>, progress: ((Int) -> Unit)? = null, backend: ExtractorBackend = ExtractorBackend.CURRENT): String = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            prepare(context)
-            if (backend == ExtractorBackend.COMPATIBILITY) prepareCompatibility(context)
+        operations.withPermit {
+            mutex.withLock {
+                prepare(context)
+                if (backend == ExtractorBackend.COMPATIBILITY) prepareCompatibility(context)
+            }
             execute(context, listOf(engineFile(context).absolutePath) + arguments, progress, backend)
         }
     }
 
     suspend fun versions(context: Context): String = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            prepare(context)
+        operations.withPermit {
+            mutex.withLock { prepare(context) }
             val version = execute(context, listOf(binary(context).absolutePath, "--version")).trim()
             val packages = execute(context, listOf("-c", "import platform, curl_cffi; print('Python ' + platform.python_version() + ' · curl_cffi ' + curl_cffi.__version__)")).trim()
             "yt-dlp $version · $packages · QuickJS-ng 0.16.2 · FFmpeg 8.1.2"
@@ -43,16 +53,18 @@ internal object ExtractorRuntime {
     }
 
     internal suspend fun python(context: Context, arguments: List<String>, backend: ExtractorBackend = ExtractorBackend.CURRENT): String = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            prepare(context)
-            if (backend == ExtractorBackend.COMPATIBILITY) prepareCompatibility(context)
+        operations.withPermit {
+            mutex.withLock {
+                prepare(context)
+                if (backend == ExtractorBackend.COMPATIBILITY) prepareCompatibility(context)
+            }
             execute(context, arguments, backend = backend)
         }
     }
 
     internal suspend fun media(context: Context, tool: String, arguments: List<String>): String = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            prepare(context)
+        operations.withPermit {
+            mutex.withLock { prepare(context) }
             executeProcess(mediaProcessBuilder(context, tool, arguments))
         }
     }
@@ -71,7 +83,15 @@ internal object ExtractorRuntime {
 
     private fun mediaLibraryPath(context: Context) = "${File(root(context), "ffmpeg/usr/lib").absolutePath}:${context.applicationInfo.nativeLibraryDir}"
 
-    suspend fun update(context: Context): String = withContext(Dispatchers.IO) {
+    private suspend fun <T> exclusively(action: suspend () -> T): T = updateMutex.withLock {
+        var acquired = 0
+        try {
+            repeat(4) { operations.acquire(); acquired++ }
+            action()
+        } finally { repeat(acquired) { operations.release() } }
+    }
+
+    suspend fun update(context: Context): String = withContext(Dispatchers.IO) { exclusively {
         mutex.withLock {
             prepare(context)
             val prefix = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/"
@@ -101,7 +121,7 @@ internal object ExtractorRuntime {
             } finally { temporary.delete() }
             "Updated to $version"
         }
-    }
+    } }
 
     private fun root(context: Context) = File(context.noBackupFilesDir, "extractor-runtime")
     private fun binary(context: Context) = File(root(context), "yt-dlp")
@@ -210,6 +230,7 @@ internal object ExtractorRuntime {
         val ffmpeg = File(root(context), "ffmpeg/usr")
         val builder = ProcessBuilder(listOf(File(native, if (compatible) "libpython-compat.so" else "libpython.so").absolutePath) + arguments)
         builder.environment().apply {
+            put("VIDFETCH_PROCESS_GROUP", "1")
             put("PYTHONHOME", python.absolutePath)
             put("PYTHONNOUSERSITE", "1")
             put("PYTHONUNBUFFERED", "1")
@@ -229,12 +250,17 @@ internal object ExtractorRuntime {
 
     private suspend fun executeProcess(builder: ProcessBuilder, progress: ((Int) -> Unit)? = null): String = runInterruptible {
         val process = builder.start()
+        val group = AtomicInteger(0)
+        val groupReady = CountDownLatch(1)
         val out = StringBuilder()
         val error = StringBuilder()
         val readers = listOf(
             thread(name = "vidfetch-extractor-output", isDaemon = true) {
                 runCatching { process.inputStream.bufferedReader().useLines { lines -> lines.forEach { line ->
-                    if (line.startsWith("VIDFETCH_PROGRESS:")) {
+                    if (line.startsWith("VIDFETCH_PID:")) {
+                        line.substringAfter(':').toIntOrNull()?.takeIf { it > 1 }?.let(group::set)
+                        groupReady.countDown()
+                    } else if (line.startsWith("VIDFETCH_PROGRESS:")) {
                         Regex("([0-9.]+)%").find(line)?.groupValues?.get(1)?.toDoubleOrNull()?.toInt()?.let { progress?.invoke(it.coerceIn(0, 100)) }
                     } else if (out.length < 10_000_000) out.appendLine(line)
                 } } }
@@ -252,7 +278,11 @@ internal object ExtractorRuntime {
             if (status != 0) throw IllegalStateException(extractorFailureDetail(error.toString(), status))
             out.toString()
         } finally {
+            // Each interpreter starts its own session. Stop its FFmpeg/JS children too.
+            if (builder.environment()["VIDFETCH_PROCESS_GROUP"] == "1") runCatching { groupReady.await(1, TimeUnit.SECONDS) }
+            group.get().takeIf { it > 1 }?.let { runCatching { Os.kill(-it, OsConstants.SIGKILL) } }
             process.destroy()
+            runCatching { process.waitFor() }
             process.inputStream.close()
             process.errorStream.close()
             readers.forEach { it.interrupt() }

@@ -16,6 +16,11 @@ cookies.txt
 *.cookies
 *.token
 *.secrets
+.env
+.env.*
+.vidfetch/
+vendor/
+bot/dist/
 .vscode/
 DerivedData/
 bin/

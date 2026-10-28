@@ -1,0 +1,15 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center_vertical"
+    android:padding="16dp" android:background="@drawable/widget_background">
+    <TextView android:id="@+id/widget_open" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="@string/widget_title"
+        android:textColor="#F3F4FF" android:textSize="20sp" android:textStyle="bold" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/widget_hint" android:textColor="#C6C8DE"
+        android:textSize="12sp" android:layout_marginTop="4dp" />
+    <Button android:id="@+id/widget_paste" android:layout_width="match_parent"
+        android:layout_height="48dp" android:layout_marginTop="8dp"
+        android:text="@string/widget_paste" android:textAllCaps="false"
+        android:textColor="#14182D" android:backgroundTint="#C9C4FF" />
+</LinearLayout>

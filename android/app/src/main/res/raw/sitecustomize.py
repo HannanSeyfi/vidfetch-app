@@ -2,6 +2,12 @@
 import os
 import subprocess
 
+# A separate session lets the Android service cancel this request's entire process
+# tree without affecting other downloads. Remove the flag before spawning children.
+if os.environ.pop('VIDFETCH_PROCESS_GROUP', None) == '1':
+    os.setsid()
+    print('VIDFETCH_PID:' + str(os.getpid()), flush=True)
+
 _media_paths = {
     os.path.abspath(path) for path in (
         os.environ.get('VIDFETCH_FFMPEG_EXECUTABLE'),

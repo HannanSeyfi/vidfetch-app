@@ -87,7 +87,7 @@ class VidFetchViewModel(application: Application) : AndroidViewModel(application
             mutable.update { it.copy(message = "Enter a valid http or https URL.") }
             return
         }
-        if (state.value.analyzing || state.value.updating || state.value.importingCookies || DownloadState.progress.value.active) return
+        if (state.value.analyzing || state.value.updating || state.value.importingCookies) return
         viewModelScope.launch {
             mutable.update { it.copy(analyzing = true, info = null, selected = null, message = null) }
             try {
