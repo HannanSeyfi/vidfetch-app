@@ -51,6 +51,11 @@ class FakeTelegram:
         self.uploads = []
         self.audio_uploads = []
         self.documents = []
+        self.edit_events = []
+        self.inline_answers = []
+        self.inline_edits = []
+        self.inline_media = []
+        self.deleted = []
 
     async def message(self, chat_id, text, *, keyboard=None):
         message = {
@@ -64,18 +69,34 @@ class FakeTelegram:
 
     async def edit(self, chat_id, message_id, text, **kwargs):
         self.edits.append(text)
+        self.edit_events.append((chat_id, message_id, text, kwargs))
+
+    async def answer_inline(self, query_id, results, **options):
+        self.inline_answers.append((query_id, results, options))
+
+    async def edit_inline(self, inline_id, text, **options):
+        self.inline_edits.append((inline_id, text, options))
+
+    async def edit_inline_media(self, inline_id, kind, file_id, caption):
+        self.inline_media.append((inline_id, kind, file_id, caption))
+
+    async def delete_message(self, chat_id, message_id):
+        self.deleted.append((chat_id, message_id))
 
     async def acknowledge(self, query_id, text=""):
         self.answers.append(text)
 
     async def upload(self, chat_id, path, caption, **kwargs):
         self.uploads.append((chat_id, path.read_bytes(), caption, kwargs))
+        return {"message_id": 100, "video": {"file_id": "cached-video"}}
 
     async def upload_audio(self, chat_id, path, caption, **kwargs):
         self.audio_uploads.append((chat_id, path.read_bytes(), caption, kwargs))
+        return {"message_id": 101, "audio": {"file_id": "cached-audio"}}
 
     async def upload_document(self, chat_id, path, caption):
         self.documents.append((path.name, path.read_bytes(), caption))
+        return {"message_id": 102, "document": {"file_id": "cached-document"}}
 
 
 def message(text, user=1, chat=None):
@@ -118,7 +139,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
     async def test_link_quality_preserving_upload_conversation(self):
         analysis = media.Analysis("Example", (media.Quality(720, "v+a", 60_000_000),))
 
-        async def download(url, quality, folder):
+        async def download(url, quality, folder, *, progress=None):
             source = folder / "source.mkv"
             source.write_bytes(b"download")
             return source
@@ -182,7 +203,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        async def downloaded(url, quality, folder):
+        async def downloaded(url, quality, folder, *, progress=None):
             self.assertTrue(quality.audio_only)
             source = folder / "source.m4a"
             source.write_bytes(b"source-audio")
@@ -221,7 +242,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
             (1, 1), "https://example.com", analysis, time.monotonic() + 10
         )
 
-        async def downloaded(url, quality, folder):
+        async def downloaded(url, quality, folder, *, progress=None):
             source = folder / "source.m4a"
             source.write_bytes(b"source-audio")
             return source
@@ -284,7 +305,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         await self.bot.handle(message("/cancel"))
         self.assertFalse(self.bot.jobs)
 
-    async def test_bounded_queue_and_one_request_per_user(self):
+    async def test_bounded_queue(self):
         self.bot.max_jobs = 1
         gate = asyncio.Event()
 
@@ -293,7 +314,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(await self.bot.schedule((1, 1), slow))
         self.assertFalse(await self.bot.schedule((1, 1), slow))
-        self.assertIn("already", self.api.messages[-1]["text"])
+        self.assertIn("full", self.api.messages[-1]["text"])
         self.assertFalse(await self.bot.schedule((2, 2), slow))
         self.assertIn("full", self.api.messages[-1]["text"])
         gate.set()
@@ -313,7 +334,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
                 output, media.Probe(10, 640, 360, "h264", "yuv420p", None), True
             )
 
-        async def downloaded(url, quality, folder):
+        async def downloaded(url, quality, folder, *, progress=None):
             source = folder / "source.mp4"
             source.write_bytes(b"source")
             return source

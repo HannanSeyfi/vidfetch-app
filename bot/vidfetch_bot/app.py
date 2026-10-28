@@ -1,4 +1,4 @@
-"""Private-chat bot with expiring, owner-bound quality menus and bounded jobs."""
+"""Private and inline downloads with owner-bound menus and individually cancellable jobs."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 
@@ -29,8 +29,10 @@ HELP = (
     "Original quality is preserved with the local Telegram server. Files above its per-file limit "
     "are delivered as numbered parts with a verified Python joiner. Download every part to rejoin.\n\n"
     "Sizes are estimates. "
-    "Only one request is processed at a time by this bot.\n\n"
-    "/cancel — cancel your current request\n/status — show your request status\n"
+    "Two requests run at once; additional requests wait in the queue. Each has its own Cancel button.\n\n"
+    "/cancel — choose a request to cancel\n/status — show all your requests\n"
+    "Inline: type @VidFetchRobot followed by a link in another chat, select the result, "
+    "then tap Show qualities if needed. Start this bot privately once before using inline downloads.\n"
     "/id — show your Telegram user ID\n/cookies — show site cookie status\n/help — show these instructions"
 )
 PRIVATE_NOTICE = "This bot is private. Contact @sorrow_climax for approval. Send /id and include your Telegram user ID."
@@ -54,11 +56,23 @@ class Selection:
     url: str
     analysis: media.Analysis
     expires: float
+    inline_message_id: str | None = None
+
+
+@dataclass
+class InlineRequest:
+    user_id: int
+    url: str
+    expires: float
+    messages: set[str] = field(default_factory=set)
 
 
 @dataclass
 class Job:
     task: asyncio.Task
+    owner: tuple[int, int]
+    title: str
+    notice: dict
     status: str = "Waiting in the queue…"
 
 
@@ -69,7 +83,9 @@ class Bot:
         *,
         allowed_users: set[int] | None = None,
         workspace: Path | None = None,
-        max_jobs: int = 5,
+        max_jobs: int = 20,
+        concurrent_jobs: int = 2,
+        max_user_jobs: int = 5,
         cookie_store: CookieStore | None = None,
         access: AccessStore | None = None,
         user_cookies: UserCookieStores | None = None,
@@ -84,9 +100,12 @@ class Bot:
         self.access = access
         self.workspace = workspace
         self.max_jobs = max_jobs
-        self.jobs: dict[tuple[int, int], Job] = {}
+        self.max_user_jobs = max_user_jobs
+        self.jobs: dict[str, Job] = {}
         self.selections: dict[str, Selection] = {}
-        self.slot = asyncio.Semaphore(1)
+        self.inline_requests: dict[str, InlineRequest] = {}
+        self.slot = asyncio.Semaphore(concurrent_jobs)
+        self.scheduling = asyncio.Lock()
         self.controls = PersonalControls(self, access, user_cookies) if user_cookies else None
 
     def is_allowed(self, user_id: int) -> bool:
@@ -115,7 +134,17 @@ class Bot:
             self.selections.pop(next(iter(self.selections)))
 
     async def handle(self, update: dict) -> None:
+        if query := update.get("inline_query"):
+            await self.inline_query(query)
+            return
+        if chosen := update.get("chosen_inline_result"):
+            if chosen.get("inline_message_id"):
+                await self.start_inline(chosen["result_id"], chosen.get("from", {}).get("id"), chosen["inline_message_id"])
+            return
         callback = update.get("callback_query")
+        if callback and callback.get("inline_message_id"):
+            await self.inline_callback(callback)
+            return
         message = callback.get("message", {}) if callback else update.get("message", {})
         user = callback.get("from", {}) if callback else message.get("from", {})
         chat = message.get("chat", {})
@@ -141,7 +170,9 @@ class Bot:
                 )
             return
         if callback:
-            if self.controls and callback.get("data", "").startswith("c:"):
+            if callback.get("data", "").startswith("x:"):
+                await self.cancel_callback(callback)
+            elif self.controls and callback.get("data", "").startswith("c:"):
                 await self.controls.callback(callback, owner)
             else:
                 await self.choose(callback, owner)
@@ -175,107 +206,226 @@ class Bot:
                 self.controls.pending.pop(owner, None)
                 self.controls.pending_domain.pop(owner, None)
                 self.controls.expire(owner)
-            self.expire_menus(owner)
-            job = self.jobs.get(owner)
-            if job:
-                job.task.cancel()
-                await asyncio.gather(job.task, return_exceptions=True)
-            await self.api.message(
-                chat["id"], "Cancelled." if job else "No active request. Old quality menus cleared."
-            )
+            requested = text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) == 2 else ""
+            owned = {key: job for key, job in self.jobs.items() if job.owner[1] == owner[1]}
+            if requested == "all":
+                for key in list(owned):
+                    await self.cancel_job(key)
+                self.expire_menus(owner)
+                await self.api.message(chat["id"], "Cancelled all your requests.")
+            elif requested in owned or (not requested and len(owned) == 1):
+                await self.cancel_job(requested or next(iter(owned)))
+                await self.api.message(chat["id"], "Cancelled.")
+            elif owned:
+                await self.show_jobs(owner)
+            else:
+                self.expire_menus(owner)
+                await self.api.message(chat["id"], "No active request. Old quality menus cleared.")
         elif command == "/status":
-            await self.api.message(
-                chat["id"],
-                self.jobs[owner].status
-                if owner in self.jobs
-                else "Ready. Send a link or choose a quality from your latest menu.",
-            )
+            await self.show_jobs(owner)
         elif text.startswith(("https://", "http://")) and len(text.split()) == 1:
             await self.schedule(
-                owner, lambda status, folder: self.inspect(text, owner, status, folder)
+                owner, lambda status, folder: self.inspect(text, owner, status, folder), title=text
             )
         else:
             await self.api.message(chat["id"], "Send one video link, or use /help.")
 
+    async def edit_notice(self, notice: dict, owner: tuple[int, int], text: str, *, keyboard=None):
+        if notice.get("media_sent"):
+            return
+        if inline_id := notice.get("inline_message_id"):
+            await self.api.edit_inline(inline_id, text, keyboard=keyboard)
+        else:
+            await self.api.edit(owner[0], notice["message_id"], text, keyboard=keyboard)
+
+    async def show_jobs(self, owner: tuple[int, int]) -> None:
+        owned = [(key, job) for key, job in self.jobs.items() if job.owner[1] == owner[1]]
+        if not owned:
+            await self.api.message(owner[0], "Ready. Send a link or choose a quality from a menu.")
+            return
+        text = "\n\n".join(f"#{key} · {job.title[:150]}\n{job.status}" for key, job in owned)
+        keyboard = [[{"text": f"Cancel #{key} · {job.title[:40]}", "callback_data": f"x:{key}"}] for key, job in owned]
+        await self.api.message(owner[0], text, keyboard=keyboard)
+
+    async def cancel_job(self, key: str) -> None:
+        job = self.jobs.get(key)
+        if not job:
+            return
+        job.task.cancel()
+        await asyncio.gather(job.task, return_exceptions=True)
+        self.jobs.pop(key, None)
+        await self.edit_notice(job.notice, job.owner, f"{job.title}\n\nCancelled.")
+
+    async def cancel_callback(self, callback: dict) -> None:
+        key = callback.get("data", "")[2:]
+        job = self.jobs.get(key)
+        user_id = callback.get("from", {}).get("id")
+        inline_id = callback.get("inline_message_id")
+        if not job or job.owner[1] != user_id or (inline_id and job.notice.get("inline_message_id") != inline_id):
+            await self.api.acknowledge(callback["id"], "This request is finished or belongs to someone else.")
+            return
+        await self.api.acknowledge(callback["id"], "Cancelling this request…")
+        await self.cancel_job(key)
+
     async def schedule(
-        self, owner: tuple[int, int], action: Callable, *, status_message: dict | None = None
+        self, owner: tuple[int, int], action: Callable, *, status_message: dict | None = None,
+        title: str = "VidFetch request",
     ) -> bool:
-        if not self.is_allowed(owner[1]):
-            await self.api.message(owner[0], PRIVATE_NOTICE if self.access else "This bot is private.")
-            return False
-        if owner in self.jobs:
-            await self.api.message(
-                owner[0], "You already have a request. Use /cancel before starting another."
-            )
-            return False
-        if len(self.jobs) >= self.max_jobs:
-            await self.api.message(
-                owner[0], "The queue is full. Please try again after a video finishes."
-            )
-            return False
-        notice = status_message or await self.api.message(owner[0], "Waiting in the queue…")
+        title = title[:250]
+        async with self.scheduling:
+            if not self.is_allowed(owner[1]):
+                if status_message:
+                    await self.edit_notice(status_message, owner, "Your access to this bot was removed.")
+                else:
+                    await self.api.message(owner[0], PRIVATE_NOTICE if self.access else "This bot is private.")
+                return False
+            rejection = None
+            if len(self.jobs) >= self.max_jobs:
+                rejection = "The queue is full. Please try again after a video finishes."
+            elif sum(job.owner[1] == owner[1] for job in self.jobs.values()) >= self.max_user_jobs:
+                rejection = f"You have {self.max_user_jobs} active requests. Cancel one or wait for it to finish."
+            if rejection:
+                if status_message:
+                    await self.edit_notice(status_message, owner, rejection, keyboard=status_message.get("retry_keyboard"))
+                else:
+                    await self.api.message(owner[0], rejection)
+                return False
+            if status_message and (inline_id := status_message.get("inline_message_id")):
+                if any(job.notice.get("inline_message_id") == inline_id for job in self.jobs.values()):
+                    return False
+            notice = status_message or await self.api.message(owner[0], "Waiting in the queue…")
+            key = secrets.token_hex(4)
+            keyboard = [[{"text": "Cancel this request", "callback_data": f"x:{key}"}]]
 
-        async def status(text: str) -> None:
-            if job := self.jobs.get(owner):
-                job.status = text
-            await self.api.edit(owner[0], notice["message_id"], text)
+            async def status(text: str) -> None:
+                if job := self.jobs.get(key):
+                    job.status = text
+                await self.edit_notice(notice, owner, f"{title}\n\n{text}", keyboard=keyboard)
 
-        async def work() -> None:
-            try:
-                await status("Waiting in the queue…")
-                async with self.slot:
-                    if not self.is_allowed(owner[1]):
-                        await status("Your access to this bot was removed.")
-                        return
-                    with tempfile.TemporaryDirectory(
-                        prefix="vidfetch-", dir=self.workspace
-                    ) as folder:
-                        await action(status, Path(folder))
-            except asyncio.CancelledError:
-                await status("Cancelled.")
-                raise
-            except (media.MediaError, TelegramError) as error:
-                await status(str(error))
-            except Exception as error:
-                logging.getLogger(__name__).warning("Request failed (%s)", type(error).__name__)
-                await status("Something went wrong. Send the link again or try another quality.")
-            finally:
-                self.jobs.pop(owner, None)
+            async def work() -> None:
+                try:
+                    await status("Waiting in the queue…")
+                    async with self.slot:
+                        if not self.is_allowed(owner[1]):
+                            await status("Your access to this bot was removed.")
+                            return
+                        with tempfile.TemporaryDirectory(prefix="vidfetch-", dir=self.workspace) as folder:
+                            await action(status, Path(folder))
+                except asyncio.CancelledError:
+                    await status("Cancelled.")
+                    raise
+                except (media.MediaError, TelegramError) as error:
+                    await status(str(error))
+                except Exception as error:
+                    logging.getLogger(__name__).warning("Request failed (%s)", type(error).__name__)
+                    await status("Something went wrong. Send the link again or try another quality.")
+                finally:
+                    if job := self.jobs.get(key):
+                        try:
+                            # Keep a newly generated quality keyboard in place.
+                            if not notice.get("quality_menu"):
+                                await self.edit_notice(notice, owner, f"{title}\n\n{job.status}")
+                        finally:
+                            self.jobs.pop(key, None)
 
-        task = asyncio.create_task(work())
-        self.jobs[owner] = Job(task)
+            task = asyncio.create_task(work())
+            self.jobs[key] = Job(task, owner, title[:250], notice)
 
-        def finished(done: asyncio.Task) -> None:
-            if (job := self.jobs.get(owner)) and job.task is done:
-                self.jobs.pop(owner, None)
-            if not done.cancelled() and (error := done.exception()):
-                logging.getLogger(__name__).warning("Request stopped (%s)", type(error).__name__)
+            def finished(done: asyncio.Task) -> None:
+                if (job := self.jobs.get(key)) and job.task is done:
+                    self.jobs.pop(key, None)
+                if not done.cancelled() and (error := done.exception()):
+                    logging.getLogger(__name__).warning("Request stopped (%s)", type(error).__name__)
 
-        task.add_done_callback(finished)
-        return True
+            task.add_done_callback(finished)
+            return True
+
+    async def inline_query(self, query: dict) -> None:
+        user_id = query.get("from", {}).get("id")
+        if not valid_id(user_id):
+            return
+        if not self.is_allowed(user_id):
+            await self.api.answer_inline(query["id"], [], button={"text": "Open VidFetch to request access", "start_parameter": "inline"})
+            return
+        url = query.get("query", "").strip()
+        if not re.fullmatch(r"https?://\S+", url) or len(url) > 3500:
+            await self.api.answer_inline(query["id"], [], button={"text": "Open VidFetch · paste a video link after the username", "start_parameter": "inline"})
+            return
+        now = time.monotonic()
+        self.inline_requests = {key: request for key, request in self.inline_requests.items() if request.expires > now}
+        while len(self.inline_requests) >= 200:
+            self.inline_requests.pop(next(iter(self.inline_requests)))
+        key = secrets.token_urlsafe(8)
+        self.inline_requests[key] = InlineRequest(user_id, url, now + 1800)
+        await self.api.answer_inline(query["id"], [{
+            "type": "article", "id": key, "title": "Download video or audio · choose quality",
+            "description": url[:200],
+            "input_message_content": {
+                "message_text": "VidFetch\n\n" + url + "\n\nTap Show qualities to choose video quality or audio.",
+                "link_preview_options": {"is_disabled": True},
+            },
+            "reply_markup": {"inline_keyboard": [[{"text": "Show qualities", "callback_data": f"i:{key}"}]]},
+        }])
+
+    async def start_inline(self, key: str, user_id: int, inline_id: str) -> None:
+        request = self.inline_requests.get(key)
+        if not request or request.expires <= time.monotonic() or request.user_id != user_id or not self.is_allowed(user_id):
+            return
+        if inline_id in request.messages or len(request.messages) >= 100:
+            return
+        notice = {"inline_message_id": inline_id, "retry_keyboard": [[{"text": "Show qualities", "callback_data": f"i:{key}"}]]}
+        owner = (user_id, user_id)
+        if await self.schedule(
+            owner, lambda status, folder: self.inspect(request.url, owner, status, folder, notice=notice),
+            status_message=notice, title=request.url,
+        ):
+            request.messages.add(inline_id)
+
+    async def inline_callback(self, callback: dict) -> None:
+        user_id = callback.get("from", {}).get("id")
+        if not valid_id(user_id) or not self.is_allowed(user_id):
+            await self.api.acknowledge(callback["id"], "Open the bot privately to request access.")
+            return
+        data = callback.get("data", "")
+        if data.startswith("x:"):
+            await self.cancel_callback(callback)
+        elif data.startswith("i:"):
+            request = self.inline_requests.get(data[2:])
+            if not request or request.user_id != user_id or request.expires <= time.monotonic():
+                await self.api.acknowledge(callback["id"], "This result expired or belongs to someone else. Enter the link again.")
+                return
+            await self.api.acknowledge(callback["id"])
+            await self.start_inline(data[2:], user_id, callback["inline_message_id"])
+        elif data.startswith("q:"):
+            await self.choose(callback, (user_id, user_id))
+
+    def quality_keyboard(self, key: str, analysis: media.Analysis) -> list:
+        return [[{"text": quality.label_for(self.api.upload_limit, preserve_quality=self.api.local_files),
+                  "callback_data": f"q:{key}:{index}"}]
+                for index, quality in enumerate(analysis.qualities)]
 
     async def inspect(
-        self, url: str, owner: tuple[int, int], status: media.Status, folder: Path
+        self, url: str, owner: tuple[int, int], status: media.Status, folder: Path,
+        *, notice: dict | None = None,
     ) -> None:
         await status("Finding available video qualities…")
         options = self.cookie_options(owner)
         analysis = await media.analyze(
             url, folder, preserve_quality=self.api.local_files, **options
         )
-        self.expire_menus(owner)
+        self.expire_menus()
         key = secrets.token_urlsafe(8)
-        self.selections[key] = Selection(owner, url, analysis, time.monotonic() + 1800)
-        keyboard = [
-            [
-                {
-                    "text": quality.label_for(
-                        self.api.upload_limit, preserve_quality=self.api.local_files
-                    ),
-                    "callback_data": f"q:{key}:{index}",
-                }
-            ]
-            for index, quality in enumerate(analysis.qualities)
-        ]
+        inline_id = notice.get("inline_message_id") if notice else None
+        self.selections[key] = Selection(owner, url, analysis, time.monotonic() + 1800, inline_id)
+        keyboard = self.quality_keyboard(key, analysis)
+        if inline_id:
+            try:
+                await self.api.edit_inline(inline_id, f"{analysis.title}\n\nChoose video quality or Audio only. Sizes are estimates.\nMenu expires in 30 minutes.", keyboard=keyboard)
+                notice["quality_menu"] = True
+            except BaseException:
+                self.selections.pop(key, None)
+                raise
+            return
         try:
             await self.api.message(
                 owner[0],
@@ -303,6 +453,7 @@ class Bot:
         if (
             not selection
             or selection.owner != owner
+            or selection.inline_message_id != callback.get("inline_message_id")
             or not 0 <= index < len(selection.analysis.qualities)
         ):
             await self.api.acknowledge(callback["id"], "This menu expired. Send the link again.")
@@ -318,7 +469,7 @@ class Bot:
             )
             await status(f"Downloading {choice}…")
             options = self.cookie_options(owner)
-            source = await media.download(selection.url, quality, folder, **options)
+            source = await media.download(selection.url, quality, folder, progress=status, **options)
             if quality.audio_only:
                 audio = await media.prepare_audio(
                     source,
@@ -328,6 +479,8 @@ class Bot:
                 )
                 size = audio.path.stat().st_size
                 if size > self.api.upload_limit:
+                    if selection.inline_message_id:
+                        await status("This file exceeds Telegram's single-file limit. Sending original-quality parts to your private bot chat…")
                     await self.deliver_parts(owner[0], audio.path, selection, status)
                     return
                 await status(f"Uploading {media.format_size(size)} of audio to Telegram…")
@@ -336,12 +489,13 @@ class Bot:
                     details += " · compressed for Telegram"
                 caption = delivery_caption(selection.analysis.title, details, selection.url)
                 if audio.document:
-                    await self.api.upload_document(owner[0], audio.path, caption)
+                    await self.send_media(owner, audio.path, caption, "document", notice)
                 else:
-                    await self.api.upload_audio(
-                        owner[0],
+                    await self.send_media(
+                        owner,
                         audio.path,
                         caption,
+                        "audio", notice,
                         title=selection.analysis.title,
                         duration=math.ceil(audio.probe.duration),
                     )
@@ -352,6 +506,8 @@ class Bot:
             )
             size = prepared.path.stat().st_size
             if size > self.api.upload_limit:
+                if selection.inline_message_id:
+                    await status("This file exceeds Telegram's single-file limit. Sending original-quality parts to your private bot chat…")
                 await self.deliver_parts(owner[0], prepared.path, selection, status)
                 return
             await status(f"Uploading {media.format_size(size)} to Telegram…")
@@ -361,20 +517,44 @@ class Bot:
                 details += " · compressed for Telegram"
             caption = delivery_caption(selection.analysis.title, details, selection.url)
             if prepared.document:
-                await self.api.upload_document(owner[0], prepared.path, caption)
+                await self.send_media(owner, prepared.path, caption, "document", notice)
             else:
-                await self.api.upload(
-                    owner[0],
+                await self.send_media(
+                    owner,
                     prepared.path,
                     caption,
+                    "video", notice,
                     width=prepared.probe.width,
                     height=prepared.probe.height,
                     duration=math.ceil(prepared.probe.duration),
                 )
             await status("Sent. Send another video link whenever you're ready.")
 
-        if await self.schedule(owner, deliver, status_message=callback["message"]):
+        notice = {"inline_message_id": selection.inline_message_id} if selection.inline_message_id else callback["message"]
+        notice["retry_keyboard"] = self.quality_keyboard(match[1], selection.analysis)
+        if await self.schedule(owner, deliver, status_message=notice, title=f"{selection.analysis.title} · {quality.label_for(self.api.upload_limit, preserve_quality=self.api.local_files)}"):
             self.selections.pop(match[1], None)
+
+    async def send_media(self, owner: tuple[int, int], path: Path, caption: str, kind: str, notice: dict, **metadata) -> None:
+        sender = {"video": self.api.upload, "audio": self.api.upload_audio, "document": self.api.upload_document}[kind]
+        try:
+            result = await sender(owner[0], path, caption, **metadata)
+        except TelegramError as error:
+            if notice.get("inline_message_id") and error.code == 403:
+                raise media.MediaError("Open VidFetch privately and send /start once, then try this inline download again.") from None
+            raise
+        if not notice.get("inline_message_id"):
+            return
+        try:
+            # Inline messages accept cached file IDs, not direct uploads. Stage the
+            # file in the requesting user's private bot chat, then remove that copy.
+            actual_kind = "document" if "document" in result else kind
+            file_id = result[actual_kind]["file_id"]
+            await self.api.edit_inline_media(notice["inline_message_id"], actual_kind, file_id, caption)
+            notice["media_sent"] = True
+        finally:
+            if result.get("message_id"):
+                await self.api.delete_message(owner[0], result["message_id"])
 
     async def deliver_parts(
         self, chat_id: int, path: Path, selection: Selection, status: media.Status
@@ -413,14 +593,15 @@ class Bot:
             "The original file is restored only after its size and SHA-256 match.",
         )
         await status(
-            f"Sent all {count} parts and the joiner. Download them together to restore the file."
+            f"Sent all {count} parts and the joiner{' to your private bot chat' if selection.inline_message_id else ''}. Download them together to restore the file."
         )
 
     async def cancel_user(self, user_id: int) -> None:
         self.selections = {key: menu for key, menu in self.selections.items() if menu.owner[1] != user_id}
         if self.controls:
             self.controls.forget_controls(user_id)
-        tasks = [job.task for owner, job in self.jobs.items() if owner[1] == user_id]
+        self.inline_requests = {key: request for key, request in self.inline_requests.items() if request.user_id != user_id}
+        tasks = [job.task for job in self.jobs.values() if job.owner[1] == user_id]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -432,6 +613,7 @@ class Bot:
         await asyncio.gather(*tasks, return_exceptions=True)
         self.jobs.clear()
         self.selections.clear()
+        self.inline_requests.clear()
         if self.controls:
             self.controls.menus.clear()
             self.controls.pending.clear()
@@ -474,8 +656,8 @@ async def run_bot(
             {
                 "commands": [
                     {"command": "start", "description": "Send a link and choose video or audio"},
-                    {"command": "cancel", "description": "Cancel your current request"},
-                    {"command": "status", "description": "Show request status"},
+                    {"command": "cancel", "description": "Choose a request to cancel"},
+                    {"command": "status", "description": "Show all your requests and Cancel buttons"},
                     {"command": "id", "description": "Show your Telegram user ID"},
                     {"command": "cookies", "description": "Manage your personal site cookies" if user_cookies else "Show site cookie status"},
                     {"command": "help", "description": "Show instructions"},

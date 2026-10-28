@@ -30,6 +30,10 @@ hosts without root access. Generated executables are CI artifacts, never Git fil
    link, then send `/start`, a public video URL, and select a quality in Telegram.
 
 `python main.py --check` checks tools and free storage without contacting Telegram.
+
+The updated bot runs two requests at once and keeps separate progress and Cancel controls for each. `/status` lists your requests; `/cancel` offers individual choices when several are active. Up to five requests per user and 20 total may be running or queued.
+
+For inline downloads, enable `/setinline` for this bot in BotFather, with placeholder `Paste a video link`. Optionally set `/setinlinefeedback` to `100%` for automatic analysis after selecting an inline result. Send `/start` privately once, then type `@VidFetchRobot URL` in the destination chat and select the download result. Tap **Show qualities** if needed, choose video quality or Audio only, and the result message becomes the media after downloading. Private access approval and the requesting user's cookie settings apply. Oversized multi-part files are delivered privately. See [inline setup and delivery details](README.md#inline-mode).
 The local API data and temporary downloads stay under `.vidfetch/` on the server.
 Normal shutdown stops both processes. To replace credentials later, edit the secret
 values in Environment and restart. A different bot ID gets its own authorization

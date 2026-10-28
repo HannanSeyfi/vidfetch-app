@@ -1,97 +1,121 @@
 package com.vidfetch.app.service
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import com.vidfetch.app.data.extractor.YtDlpRepositoryImpl
 import com.vidfetch.app.data.storage.DownloadedMediaRepository
+import com.vidfetch.app.domain.DownloadStatus
 import com.vidfetch.app.notification.DownloadNotifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
-
-data class DownloadProgress(
-    val active: Boolean = false,
-    val title: String = "",
-    val percent: Int = 0,
-    val message: String? = null,
-    val completion: Long = 0,
-)
-
-/** Process-local state for the UI; completed files remain the durable source of truth. */
-object DownloadState {
-    private val mutable = MutableStateFlow(DownloadProgress())
-    val progress = mutable.asStateFlow()
-
-    fun started(title: String) { mutable.value = DownloadProgress(active = true, title = title, completion = mutable.value.completion) }
-    fun advanced(percent: Int) { mutable.value = mutable.value.copy(percent = percent) }
-    fun finished(message: String) {
-        mutable.value = mutable.value.copy(active = false, percent = 100, message = message, completion = mutable.value.completion + 1)
-    }
-    fun failed(message: String) { mutable.value = mutable.value.copy(active = false, message = message) }
-}
+import java.util.UUID
 
 class DownloadService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var job: Job? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val jobs = mutableMapOf<String, Job>()
+    private val slots = Semaphore(2)
+    private var lastStartId = 0
+    private lateinit var notifier: DownloadNotifier
+
+    override fun onCreate() {
+        super.onCreate()
+        notifier = DownloadNotifier(this)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (job?.isActive == true) return START_NOT_STICKY
-        val url = intent?.getStringExtra(EXTRA_URL).orEmpty()
-        val title = intent?.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Video" }
-        if (url.isBlank()) {
-            stopSelf(startId)
+        lastStartId = startId
+        if (intent?.action == ACTION_CANCEL) {
+            intent.getStringExtra(EXTRA_ID)?.let { jobs[it]?.cancel() }
+            if (jobs.isEmpty()) stopSelf(startId)
             return START_NOT_STICKY
         }
-        val notifier = DownloadNotifier(this)
-        startForeground(DownloadNotifier.ID, notifier.foreground(title))
-        DownloadState.started(title)
-        job = scope.launch {
-            val media = DownloadedMediaRepository(applicationContext)
+        val url = intent?.getStringExtra(EXTRA_URL).orEmpty()
+        if (url.isBlank()) {
+            if (jobs.isEmpty()) stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        val id = intent?.getStringExtra(EXTRA_ID) ?: UUID.randomUUID().toString()
+        if (id in jobs) return START_NOT_STICKY
+        val title = intent?.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Video" }
+        val height = intent!!.getIntExtra(EXTRA_HEIGHT, 0).takeIf { it > 0 }
+        val audioOnly = intent.getBooleanExtra(EXTRA_AUDIO_ONLY, false)
+        val quality = if (audioOnly) "Audio only" else height?.let { "${it}p" } ?: "Best video"
+        DownloadState.queued(id, title, quality)
+        startForeground(DownloadNotifier.ID, notifier.summary())
+        notifier.task(id, title, "Waiting for a download slot", null)
+        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             var working: File? = null
             try {
-                working = media.workingDirectory()
-                val output = File(working, "%(title).180B.%(ext)s").absolutePath
-                var lastProgress = -1
-                val requestedHeight = intent!!.getIntExtra(EXTRA_HEIGHT, 0).takeIf { it > 0 }
-                val audioOnly = intent.getBooleanExtra(EXTRA_AUDIO_ONLY, false)
-                val result = YtDlpRepositoryImpl(applicationContext).download(url, requestedHeight, output, audioOnly) { value ->
-                    val next = value.coerceIn(0, 99)
-                    if (next != lastProgress) {
-                        lastProgress = next
-                        DownloadState.advanced(next)
-                        notifier.progress(title, next)
+                slots.withPermit {
+                    DownloadState.status(id, DownloadStatus.DOWNLOADING)
+                    val media = DownloadedMediaRepository(applicationContext)
+                    working = media.workingDirectory()
+                    val output = File(working, "%(title).180B.%(ext)s").absolutePath
+                    var lastProgress = -1
+                    val result = YtDlpRepositoryImpl(applicationContext).download(url, height, output, audioOnly) { value ->
+                        val next = value.coerceIn(0, 99)
+                        if (next != lastProgress) {
+                            lastProgress = next
+                            DownloadState.advanced(id, next)
+                            notifier.task(id, title, "$quality · $next%", next)
+                        }
                     }
+                    currentCoroutineContext().ensureActive()
+                    DownloadState.status(id, DownloadStatus.MERGING, "Saving to Downloads/VidFetch…")
+                    notifier.task(id, title, "Saving to Downloads/VidFetch…", null)
+                    val downloadContext = currentCoroutineContext()
+                    media.publish(result.file) { downloadContext.ensureActive() }
+                    val actualQuality = if (audioOnly) " · Audio only" else if (height != null && result.height != null && result.height != height) " · Downloaded ${result.height}p (requested ${height}p)" else ""
+                    DownloadState.finished(id, "Saved to Downloads/VidFetch$actualQuality")
+                    notifier.finished(id, title, true)
                 }
-                DownloadState.advanced(99)
-                media.publish(result.file)
-                val quality = if (audioOnly) " · Audio only" else if (requestedHeight != null && result.height != null && result.height != requestedHeight) " · Downloaded ${result.height}p (requested ${requestedHeight}p)" else ""
-                DownloadState.finished("Saved to Downloads/VidFetch$quality")
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                notifier.complete(title)
             } catch (error: CancellationException) {
-                DownloadState.failed("Download interrupted")
+                DownloadState.cancelled(id)
+                notifier.cancel(id)
                 throw error
             } catch (error: Exception) {
-                DownloadState.failed(error.message ?: "Download failed")
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                notifier.failed(title)
+                DownloadState.failed(id, error.message ?: "Download failed")
+                notifier.finished(id, title, false)
             } finally {
                 working?.deleteRecursively()
-                stopSelf(startId)
             }
         }
+        jobs[id] = job
+        job.invokeOnCompletion {
+            scope.launch {
+                jobs.remove(id)
+                if (DownloadState.progress.value.downloads.any { it.id == id && it.active }) {
+                    DownloadState.cancelled(id)
+                    notifier.cancel(id)
+                }
+                if (jobs.isEmpty()) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelfResult(lastStartId)
+                } else notifier.refreshSummary()
+            }
+        }
+        job.start()
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        jobs.keys.toList().forEach { id ->
+            DownloadState.cancelled(id)
+            notifier.cancel(id)
+        }
         scope.cancel()
         super.onDestroy()
     }
@@ -99,9 +123,14 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        const val ACTION_CANCEL = "com.vidfetch.app.CANCEL_DOWNLOAD"
+        const val EXTRA_ID = "download_id"
         const val EXTRA_URL = "download_url"
         const val EXTRA_TITLE = "download_title"
         const val EXTRA_HEIGHT = "download_height"
         const val EXTRA_AUDIO_ONLY = "download_audio_only"
+
+        fun cancelIntent(context: Context, id: String) = Intent(context, DownloadService::class.java)
+            .setAction(ACTION_CANCEL).putExtra(EXTRA_ID, id)
     }
 }

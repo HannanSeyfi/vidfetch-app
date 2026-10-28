@@ -139,6 +139,17 @@ def notebook() -> dict:
            Files are **not compressed to 50 MB**. Compatible videos play inline; other formats
            arrive as original-quality documents. **Audio only** preserves the original audio codec.
 
+        Two requests run at once, with up to five per user and 20 total running or queued.
+        Every request has its own progress and Cancel button; `/status` lists all of yours.
+        `/cancel` offers individual choices when several requests are active; `/cancel all` stops all of yours.
+
+        For inline downloads, enable `/setinline` for your bot in BotFather. Optionally set
+        `/setinlinefeedback` to `100%` for automatic analysis after selecting a result.
+        Send `/start` privately once, then type `@your_bot URL` in a destination chat and
+        select the download result. Tap **Show qualities** if needed, then choose video quality
+        or Audio only. The result shows progress and becomes the media. Oversized file parts
+        and their joiner are delivered to your private bot chat.
+
         Telegram allows up to **2,000 MB per file** with this server. Files exceeding our
         conservative 1,950 MB ceiling are sent as numbered parts plus a Python joiner.
         Download all parts and the joiner into one folder and run the joiner with Python 3.

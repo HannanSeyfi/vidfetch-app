@@ -1,16 +1,13 @@
-VidFetch 0.3.9 improves Reddit extraction and site cookie handling.
+VidFetch 0.4.0 adds individual cancellation, concurrent downloads, a home-screen widget and Telegram inline downloads.
 
-- Adds a public-page Reddit fallback when the JSON metadata endpoint rejects access. It reads only the requested post's own native video player and uses its HLS/DASH streams, retaining audio. Related posts and comment GIFs are excluded; inaccessible/private communities and rate limits remain errors.
-- Updates bundled yt-dlp to official nightly 2026.10.23.233055, verified by SHA-256.
-- Uses reddit.com cookies for Reddit short links and media aliases before redirects, while preserving cookie domain isolation.
-- Tries Reddit with Chrome impersonation on the current runtime, then the compatibility runtime's default profile, then a default current-runtime request. Retries are bounded; cancellation, rate limits and inaccessible private communities stop immediately.
-- Discards expired cookie entries and shows unexpired cookie counts and sign-in cookie presence in Settings. Enabled cookies do not guarantee that a website accepts the session.
-- Gives specific guidance for Reddit session rejection, YouTube verification and HTTP 429.
-- Retains audio-only M4A downloads, video quality selection, Downloads folder access, media validation and existing FFmpeg isolation fixes.
-- Publishes the Telegram companion with original-quality large-file delivery and a new optional YouTube/Reddit cookie setup cell. Cookies are imported into private runtime storage and used for both analysis and downloads. An explicit Telegram user allowlist is required when account cookies are enabled.
+- Android can run two downloads at once and queue additional videos or audio. Home, Downloads and notifications show separate progress and Cancel controls for each transfer. You can analyze another link while transfers continue.
+- Cancelling a transfer stops its extractor and media subprocesses and removes partial files without interrupting the other requests. Parallel downloads safely reserve distinct filenames.
+- Add **VidFetch · Paste link** from the home screen's Widgets picker. Copy a link and tap the widget to open a compact native window with Paste, Analyze, quality selection and Download controls. Downloads continue after closing the window.
+- The Telegram bot runs two requests concurrently, with up to five per user and 20 total active/queued requests. Each request has progress and its own Cancel button. /status lists all requests; /cancel offers individual choices, /cancel ID selects one, and /cancel all explicitly cancels all of yours. Earlier quality menus stay usable when another link is added.
+- Telegram inline mode lets you type @VidFetchRobot URL in another chat, select the download result, choose a quality and receive the resulting video or audio in that same message. Tap **Show qualities** if analysis has not started. Approvals, personal cookie routing and owner-only controls remain in force.
+- Enable /setinline for this bot in BotFather. Optionally enable /setinlinefeedback at 100% for automatic analysis after result selection. Send /start privately once so the bot can stage the upload, reuse its Telegram file ID in the destination message and remove the temporary private copy. Oversized files retain lossless splitting and are delivered to your private bot chat with their verified joiner.
+- The self-contained Colab notebook includes the updated bot. Stop an old instance, reopen the latest notebook and run all cells to load the new source.
 
-Choose **VidFetch_v8a_0.3.9.apk** for most current Android phones, or **VidFetch_v7a_0.3.9.apk** for 32-bit ARM phones. Both require Android 7.0+ and use the existing release signing identity.
+Choose **VidFetch_v8a_0.4.0.apk** for most current Android phones, or **VidFetch_v7a_0.4.0.apk** for 32-bit ARM phones. Both require Android 7.0+. The GitHub release workflow signs builds with the existing permanent release identity. Local builds without that key use development signing and cannot update an installed published release.
 
-Open the updated bot notebook from the repository's main branch and run all cells. Saved copies contain their previous embedded source. In the optional cookies cell choose Import / replace for each site, upload a Netscape export, then enter your Telegram ID in the start cell. Use /id with cookies disabled to find it. Every allowlisted user can use the imported accounts; only list trusted people.
-
-Automated checks exercise controlled media fixtures and Android emulators. Live Reddit/YouTube access can still be restricted by account/session validity, network reputation, verification requirements or upstream site changes. Private credentials are never included in the source, notebook or APK.
+Android transfers and bot queues do not survive process termination or restart. Website access still depends on session validity, network reputation and upstream restrictions. Extraction and processing in the Android app remain local to the phone.

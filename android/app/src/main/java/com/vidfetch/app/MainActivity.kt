@@ -101,18 +101,20 @@ import coil.request.videoFrameMillis
 import com.vidfetch.app.data.storage.DownloadedMedia
 import com.vidfetch.app.domain.VideoInfo
 import com.vidfetch.app.domain.VideoQuality
+import com.vidfetch.app.domain.DownloadStatus
 import com.vidfetch.app.domain.formatDuration
 import com.vidfetch.app.domain.formatBytes
 import com.vidfetch.app.domain.qualities
 import com.vidfetch.app.service.DownloadProgress
+import com.vidfetch.app.service.DownloadItem
 import com.vidfetch.app.service.DownloadService
 import com.vidfetch.app.service.DownloadState
 import java.util.regex.Pattern
 
-class MainActivity : ComponentActivity() {
+open class MainActivity : ComponentActivity() {
     private data class PendingDownload(val url: String, val title: String, val quality: VideoQuality)
     private var pendingDownload: PendingDownload? = null
-    private val sharedLink = mutableStateOf("")
+    protected val sharedLink = mutableStateOf("")
     private val storagePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val pending = pendingDownload
         pendingDownload = null
@@ -124,8 +126,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sharedLink.value = sharedUrl(intent)
-        setContent { VidFetchApp(sharedLink.value, ::beginDownload) }
+        setContent { Content() }
     }
+
+    @Composable protected open fun Content() { VidFetchApp(sharedLink.value, ::beginDownload) }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -138,8 +142,7 @@ class MainActivity : ComponentActivity() {
         ViewModelProvider(this)[VidFetchViewModel::class.java].refreshDownloads()
     }
 
-    private fun beginDownload(video: VideoInfo, quality: VideoQuality) {
-        if (DownloadState.progress.value.active) return
+    protected fun beginDownload(video: VideoInfo, quality: VideoQuality) {
         val pending = PendingDownload(video.webpageUrl, video.title, quality)
         if (Build.VERSION.SDK_INT <= 28 && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             pendingDownload = pending
@@ -152,6 +155,7 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         val intent = Intent(this, DownloadService::class.java)
+            .putExtra(DownloadService.EXTRA_ID, java.util.UUID.randomUUID().toString())
             .putExtra(DownloadService.EXTRA_URL, download.url)
             .putExtra(DownloadService.EXTRA_TITLE, download.title)
             .putExtra(DownloadService.EXTRA_HEIGHT, download.quality.height ?: 0)
@@ -209,7 +213,7 @@ class MainActivity : ComponentActivity() {
         }) { padding ->
             when (tab) {
                 0 -> HomeScreen(Modifier.padding(padding), state, progress, model::setUrl, model::setSelected, model::analyze, startDownload)
-                1 -> DownloadsScreen(Modifier.padding(padding), state, model::refreshDownloads, {
+                1 -> DownloadsScreen(Modifier.padding(padding), state, progress, model::refreshDownloads, {
                     folderPicker.launch(DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:${Environment.DIRECTORY_DOWNLOADS}/VidFetch"))
                 }, model::open, model::share, model::delete, model::rename)
                 else -> SettingsScreen(Modifier.padding(padding), darkTheme, { darkTheme = it; preferences.edit().putBoolean("dark_theme", it).apply() }, state, progress, model::updateExtractor, model::importCookies, model::setCookiesEnabled, model::deleteCookies)
@@ -218,7 +222,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun HomeScreen(
+@Composable internal fun HomeScreen(
     modifier: Modifier,
     state: VidFetchUiState,
     progress: DownloadProgress,
@@ -246,19 +250,12 @@ class MainActivity : ComponentActivity() {
                 val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip
                 setUrl(clip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty())
             }) { Text("Paste") }
-            Button(onClick = analyze, enabled = !state.analyzing && !progress.active && !state.updating && !state.importingCookies) { Text("Analyze") }
+            Button(onClick = analyze, enabled = !state.analyzing && !state.updating && !state.importingCookies) { Text("Analyze") }
         }
         if (state.analyzing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Checking available formats…") }
         state.message?.let { MessageCard(it) }
-        if (progress.active) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Downloading ${progress.title}", style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    LinearProgressIndicator(progress = { progress.percent / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text("${progress.percent}% · You can leave this screen while it downloads.", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        } else progress.message?.let { MessageCard(it) }
+        progress.downloads.filter { it.active }.forEach { DownloadCard(it) }
+        progress.downloads.lastOrNull { !it.active }?.let { DownloadCard(it) }
         state.info?.let { video ->
             Card(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -277,7 +274,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    Button(onClick = { state.selected?.let { download(video, it) } }, enabled = state.selected != null && !progress.active && !state.analyzing && !state.updating && !state.importingCookies, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Button(onClick = { state.selected?.let { download(video, it) } }, enabled = state.selected != null && !state.analyzing && !state.updating && !state.importingCookies, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         Icon(Icons.Default.Download, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
                         Text(if (state.selected?.audioOnly == true) "Download audio" else "Download video")
@@ -288,9 +285,36 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable private fun DownloadCard(item: DownloadItem) {
+    val context = LocalContext.current
+    var cancelling by remember(item.id) { mutableStateOf(false) }
+    val label = when (item.status) {
+        DownloadStatus.QUEUED -> "Queued"
+        DownloadStatus.DOWNLOADING -> "Downloading · ${item.percent}%"
+        DownloadStatus.MERGING -> "Saving…"
+        DownloadStatus.COMPLETED -> "Complete"
+        DownloadStatus.CANCELLED -> "Cancelled"
+        else -> "Failed"
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(item.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("${item.quality} · ${if (cancelling && item.active) "Cancelling…" else label}", style = MaterialTheme.typography.bodySmall)
+            if (item.status == DownloadStatus.DOWNLOADING) LinearProgressIndicator(progress = { item.percent / 100f }, modifier = Modifier.fillMaxWidth())
+            else if (item.active) LinearProgressIndicator(Modifier.fillMaxWidth())
+            item.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (item.active) OutlinedButton(onClick = {
+                context.startService(DownloadService.cancelIntent(context, item.id))
+                cancelling = true
+            }, enabled = !cancelling) { Text("Cancel") }
+        }
+    }
+}
+
 @Composable private fun DownloadsScreen(
     modifier: Modifier,
     state: VidFetchUiState,
+    progress: DownloadProgress,
     refresh: () -> Unit,
     connectFolder: () -> Unit,
     open: (DownloadedMedia) -> Unit,
@@ -312,6 +336,11 @@ class MainActivity : ComponentActivity() {
                 TextButton(onClick = refresh, enabled = !state.downloadsLoading) { Text("Refresh") }
             }
         }
+        if (progress.downloads.isNotEmpty()) {
+            item { Text("Transfers", style = MaterialTheme.typography.titleMedium) }
+            items(progress.downloads.sortedBy { !it.active }, key = { "transfer-${it.id}" }) { DownloadCard(it) }
+            item { Text("Saved files", style = MaterialTheme.typography.titleMedium) }
+        }
         if (state.downloadsLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         state.downloadsMessage?.let { message -> item { MessageCard(message) } }
         if (Build.VERSION.SDK_INT >= 29 && !state.downloadsFolderConnected) item {
@@ -323,7 +352,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        if (!state.downloadsLoading && state.downloads.isEmpty()) item {
+        if (!state.downloadsLoading && state.downloads.isEmpty() && !progress.active) item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(40.dp))

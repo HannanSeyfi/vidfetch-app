@@ -326,7 +326,8 @@ async def validate_url(url: str) -> str:
 
 
 async def command(
-    args: list[str], *, timeout: int, folder: Path, download_guard: bool = False
+    args: list[str], *, timeout: int, folder: Path, download_guard: bool = False,
+    progress: Status | None = None,
 ) -> str:
     """Cancel/timeout always reaps the child before the caller deletes its files."""
     if download_guard:
@@ -336,7 +337,26 @@ async def command(
         process = await asyncio.create_subprocess_exec(
             *args, stdout=asyncio.subprocess.PIPE, stderr=log, start_new_session=os.name != "nt"
         )
-        communicate = asyncio.create_task(process.communicate())
+        async def read_progress():
+            output = bytearray()
+            pending = b""
+            last_update = 0.0
+            while chunk := await process.stdout.read(65536):
+                output.extend(chunk)
+                if len(output) > 16_000_000:
+                    raise MediaError("The site returned too much metadata. Send a single-video link.")
+                pending += chunk
+                while b"\n" in pending:
+                    line, pending = pending.split(b"\n", 1)
+                    if line.startswith(b"VIDFETCH_PROGRESS:"):
+                        now = asyncio.get_running_loop().time()
+                        if now - last_update >= 3:
+                            await progress("Downloading " + line.decode("utf-8", errors="replace").split(":", 1)[1].strip())
+                            last_update = now
+            await process.wait()
+            return bytes(output), None
+
+        communicate = asyncio.create_task(read_progress() if progress else process.communicate())
         try:
             async with asyncio.timeout(timeout):
                 while not communicate.done():
@@ -435,6 +455,7 @@ async def extract(
     timeout: int,
     cookie_store: CookieStore | None = None,
     download_guard: bool = False,
+    progress: Status | None = None,
 ) -> str:
     reddit = site_for_url(url) == "reddit.com"
     plugins = folder / "extractor-plugins"
@@ -457,6 +478,7 @@ async def extract(
                     timeout=timeout,
                     folder=folder,
                     download_guard=download_guard,
+                    **({"progress": progress} if progress else {}),
                 )
         except CookieError as error:
             raise MediaError(str(error)) from None
@@ -496,7 +518,8 @@ async def analyze(
 
 
 async def download(
-    url: str, quality: Quality, folder: Path, *, cookie_store: CookieStore | None = None
+    url: str, quality: Quality, folder: Path, *, cookie_store: CookieStore | None = None,
+    progress: Status | None = None,
 ) -> Path:
     # Recheck the initial host when a button is used later in the session.
     await validate_url(url)
@@ -509,6 +532,8 @@ async def download(
             "mkv",
             "--output",
             str(folder / "source.%(ext)s"),
+            "--newline", "--progress",
+            "--progress-template", "download:VIDFETCH_PROGRESS:%(progress._percent_str)s · %(progress._speed_str)s · ETA %(progress._eta_str)s",
             "--print",
             "after_move:%(filepath)j",
         ],
@@ -516,6 +541,7 @@ async def download(
         timeout=7200,
         cookie_store=cookie_store,
         download_guard=True,
+        progress=progress,
     )
     try:
         path = Path(json.loads(raw.splitlines()[-1])).resolve()

@@ -97,18 +97,18 @@ class Telegram:
             )
         return body.get("result")
 
-    async def send_file(self, method: str, field: str, path: Path, payload: dict) -> None:
+    async def send_file(self, method: str, field: str, path: Path, payload: dict) -> dict:
         size = path.stat().st_size
         if not 0 < size <= self.upload_limit:
             raise TelegramError(413, "file size")
         if self.local_files:
-            await self.call(method, {**payload, field: path.resolve().as_uri()}, uploading=True)
+            return await self.call(method, {**payload, field: path.resolve().as_uri()}, uploading=True)
         else:
             content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             if path.suffix == ".m4a":
                 content_type = "audio/mp4"
             with path.open("rb") as stream:
-                await self.call(
+                return await self.call(
                     method,
                     payload,
                     files={field: (path.name, stream, content_type)},
@@ -174,8 +174,8 @@ class Telegram:
         except (httpx.HTTPError, TimeoutError, ValueError):
             raise TelegramError(0, "document unavailable") from None
 
-    async def upload_document(self, chat_id: int, path: Path, caption: str) -> None:
-        await self.send_file(
+    async def upload_document(self, chat_id: int, path: Path, caption: str) -> dict:
+        return await self.send_file(
             "sendDocument",
             "document",
             path,
@@ -214,9 +214,39 @@ class Telegram:
         except TelegramError:
             pass  # An old callback may expire before Telegram receives the answer.
 
+    async def answer_inline(self, query_id: str, results: list, *, button: dict | None = None):
+        payload = {"inline_query_id": query_id, "results": results, "cache_time": 0, "is_personal": True}
+        if button:
+            payload["button"] = button
+        return await self.call("answerInlineQuery", payload)
+
+    async def edit_inline(self, message_id: str, text: str, *, keyboard: list | None = None):
+        try:
+            await self.call("editMessageText", {
+                "inline_message_id": message_id, "text": text,
+                "reply_markup": {"inline_keyboard": keyboard or []},
+                "link_preview_options": {"is_disabled": True},
+            })
+        except TelegramError as error:
+            if error.code in {401, 409}:
+                raise
+
+    async def edit_inline_media(self, message_id: str, kind: str, file_id: str, caption: str):
+        await self.call("editMessageMedia", {
+            "inline_message_id": message_id,
+            "media": {"type": kind, "media": file_id, "caption": caption, "parse_mode": "HTML"},
+            "reply_markup": {"inline_keyboard": []},
+        })
+
+    async def delete_message(self, chat_id: int, message_id: int):
+        try:
+            await self.call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+        except TelegramError:
+            pass
+
     async def upload(
         self, chat_id: int, path: Path, caption: str, *, width: int, height: int, duration: int
-    ) -> None:
+    ) -> dict:
         payload = {
             "chat_id": str(chat_id),
             "caption": caption,
@@ -227,7 +257,7 @@ class Telegram:
             "duration": str(duration),
         }
         try:
-            await self.send_file("sendVideo", "video", path, payload)
+            return await self.send_file("sendVideo", "video", path, payload)
         except TelegramError as error:
             # Only an explicit format rejection justifies resending as a document.
             # Never retry ambiguous network/timeouts: the first upload may have arrived.
@@ -240,17 +270,17 @@ class Telegram:
                 )
             ):
                 raise
-            await self.upload_document(chat_id, path, caption)
+            return await self.upload_document(chat_id, path, caption)
 
     async def updates(self, offset: int):
         return await self.call(
             "getUpdates",
-            {"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"]},
+            {"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query", "inline_query", "chosen_inline_result"]},
         )
 
     async def upload_audio(
         self, chat_id: int, path: Path, caption: str, *, title: str, duration: int
-    ) -> None:
+    ) -> dict:
         payload = {
             "chat_id": str(chat_id),
             "caption": caption,
@@ -258,7 +288,7 @@ class Telegram:
             "title": title,
             "duration": str(duration),
         }
-        await self.send_file("sendAudio", "audio", path, payload)
+        return await self.send_file("sendAudio", "audio", path, payload)
 
     async def poll(self):
         offset = 0

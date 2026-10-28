@@ -193,6 +193,31 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await api.close()
 
+    async def test_inline_results_are_personal_and_media_edits_reuse_cached_files(self):
+        calls = []
+
+        def transport(request):
+            calls.append((request.url.path.split("/")[-1], json.loads(request.read())))
+            return httpx.Response(200, json={"ok": True, "result": True})
+
+        api = Telegram("unused-test-credential", transport=httpx.MockTransport(transport))
+        try:
+            await api.answer_inline("query", [{"type": "article", "id": "request"}])
+            self.assertEqual(calls[0][1]["cache_time"], 0)
+            self.assertTrue(calls[0][1]["is_personal"])
+            await api.edit_inline("inline", "Downloading", keyboard=[[{"text": "Cancel", "callback_data": "x:job"}]])
+            self.assertEqual(calls[1][1]["inline_message_id"], "inline")
+            self.assertNotIn("chat_id", calls[1][1])
+            await api.edit_inline_media("inline", "video", "cached-file", "Caption")
+            self.assertEqual(calls[2][0], "editMessageMedia")
+            self.assertEqual(calls[2][1]["media"]["media"], "cached-file")
+            self.assertEqual(calls[2][1]["reply_markup"], {"inline_keyboard": []})
+            await api.updates(3)
+            self.assertIn("inline_query", calls[3][1]["allowed_updates"])
+            self.assertIn("chosen_inline_result", calls[3][1]["allowed_updates"])
+        finally:
+            await api.close()
+
     async def test_network_error_never_contains_credential(self):
         def transport(request):
             raise httpx.ConnectError("secret-credential-in-url", request=request)

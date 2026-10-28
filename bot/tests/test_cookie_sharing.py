@@ -179,7 +179,7 @@ class SharingTests(unittest.IsolatedAsyncioTestCase):
 
         self.bot.selections["share"] = Selection((2, 2), "https://youtu.be/video", media.Analysis("Video", (media.Quality(360, "v", 1),)), time.monotonic() + 60)
 
-        async def download(url, quality, folder, *, cookie_store):
+        async def download(url, quality, folder, *, cookie_store, progress=None):
             with cookie_store.snapshot_for(url, folder) as snapshot:
                 self.assertIn("owner-private", snapshot.read_text())
                 self.assertNotIn("member-private", snapshot.read_text())

@@ -181,7 +181,7 @@ class PersonalTests(unittest.IsolatedAsyncioTestCase):
         self.stores.for_user(3).import_bytes("youtube.com", cookie(value="private-user-two"))
         seen = []
 
-        async def download(url, quality, folder, *, cookie_store):
+        async def download(url, quality, folder, *, cookie_store, progress=None):
             with cookie_store.snapshot_for(url, folder) as snapshot:
                 seen.append(snapshot.read_text())
             source = folder / "video.mp4"

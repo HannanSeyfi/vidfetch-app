@@ -40,7 +40,8 @@ def package(output: Path):
         subprocess.run([str(wrapper), "--version"], check=True)
         shutil.copytree(ROOT / "vidfetch_bot", stage / "vidfetch_bot", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(ROOT / "main.py", stage / "main.py")
-        shutil.copy2(ROOT / "README.hosting.md", stage / "README.md")
+        shutil.copy2(ROOT / "README.md", stage / "README.md")
+        shutil.copy2(ROOT / "README.hosting.md", stage / "README.hosting.md")
         (stage / "requirements.txt").write_text(
             (ROOT / "requirements.txt").read_text() + "\npython-dotenv==1.2.4\n"
         )

@@ -1,1 +1,8 @@
-<resources><style name="Theme.VidFetch" parent="android:style/Theme.Material.Light.NoActionBar" /></resources>
+<resources>
+    <style name="Theme.VidFetch" parent="android:style/Theme.Material.Light.NoActionBar" />
+    <style name="Theme.VidFetch.Widget" parent="android:style/Theme.Material.Light.Dialog.NoActionBar">
+        <item name="android:windowMinWidthMajor">94%</item>
+        <item name="android:windowMinWidthMinor">94%</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+    </style>
+</resources>
