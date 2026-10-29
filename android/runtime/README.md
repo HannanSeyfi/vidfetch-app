@@ -18,7 +18,7 @@ The build generates native libraries and the yt-dlp resource from runtime-lock.j
 
 The native contribution is not yet merged upstream. VidFetch uses its immutable commit and verifies downloaded content, rather than following the contributor's moving branch. ARM64 and ARMv7 binaries are distributed; x86_64 binaries are used only for instrumentation tests.
 
-## Reddit and RedGIFs compatibility runtime
+## Compatibility runtime
 
 The separately packaged compatibility interpreter and Python data come from the released youtubedl-android 0.18.1 source at commit `d725d5c9a18c3a99a13ee0308bf78275dc310760`: https://github.com/yausername/youtubedl-android/tree/d725d5c9a18c3a99a13ee0308bf78275dc310760. Its Python version is 3.12. The ARM64 interpreter and Python archive bytes were compared against the published VidFetch 0.2.2 APK and match exactly. The payload is renamed to avoid replacing the current runtime, checksum-pinned in runtime-lock.json, and generated during the build. No generated binaries are committed.
 

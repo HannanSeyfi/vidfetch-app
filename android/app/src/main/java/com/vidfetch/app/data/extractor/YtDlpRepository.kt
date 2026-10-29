@@ -104,7 +104,7 @@ class YtDlpRepositoryImpl(private val context: Context) : YtDlpRepository {
     private fun JSONObject.toFormat(): VideoFormat {
         val videoCodec = optString("vcodec").takeUnless { it.isBlank() || it == "null" }
         val audioCodec = optString("acodec").takeUnless { it.isBlank() || it == "null" }
-        // Direct MP4 extractors such as Pornhub may provide a resolution without a codec.
+        // Direct MP4 extractors may provide a resolution without a codec.
         // yt-dlp uses "none" to explicitly identify missing video/audio streams;
         // unspecified codecs can still contain audio that FFmpeg can extract.
         return VideoFormat(optString("format_id"), optInt("height").takeIf { it > 0 }, optInt("width").takeIf { it > 0 },

@@ -1,3 +1,6 @@
+VidFetch third-party notices
+===========================
+
 VidFetch includes or depends on third-party components. Their licenses remain with their respective authors.
 
 * yt-dlp — Unlicense (https://github.com/yt-dlp/yt-dlp)
