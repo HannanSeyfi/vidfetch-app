@@ -113,7 +113,6 @@ jobs:
           mkdir -p app/build/outputs/release-assets
           cp app/build/outputs/apk/release/app-arm64-v8a-release.apk app/build/outputs/release-assets/VidFetch_v8a_0.4.0.apk
           cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk app/build/outputs/release-assets/VidFetch_v7a_0.4.0.apk
-          cp ../bot/VidFetch_Telegram_Colab.ipynb app/build/outputs/release-assets/VidFetch_Telegram_Colab.ipynb
       - name: Publish Android downloads to GitHub Releases
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -124,4 +123,3 @@ jobs:
           files: |
             android/app/build/outputs/release-assets/VidFetch_v8a_0.4.0.apk
             android/app/build/outputs/release-assets/VidFetch_v7a_0.4.0.apk
-            android/app/build/outputs/release-assets/VidFetch_Telegram_Colab.ipynb

@@ -20,7 +20,6 @@ cookies.txt
 .env.*
 .vidfetch/
 vendor/
-bot/dist/
 .vscode/
 DerivedData/
 bin/
@@ -36,3 +35,7 @@ __pycache__/
 .apk-inspect/
 .inspect/
 VidFetchRobot/
+
+# Private local companion and personal imports
+/bot/
+/Browser Cookies/
