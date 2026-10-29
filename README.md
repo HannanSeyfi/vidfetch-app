@@ -8,6 +8,8 @@ VidFetch is a privacy-minded, local-first video and audio downloader for content
 
 Choose the **v8a** APK for most current Android phones (`arm64-v8a`), or **v7a** for 32-bit ARM phones. Android may ask you to allow installation from your browser or file manager. The release page shows the latest published build.
 
+Android 0.4.0 supports individual cancellation, two concurrent downloads with per-transfer progress, and a **Paste link** home-screen widget.
+
 ## Platforms
 
 | Platform | Status |
@@ -17,11 +19,13 @@ Choose the **v8a** APK for most current Android phones (`arm64-v8a`), or **v7a**
 | Windows | Planned |
 | [<img src=".github/assets/telegram.svg" width="18" height="18" alt="" />@VidFetchRobot](https://t.me/VidFetchRobot) | Telegram companion |
 
-## Telegram companion
+## Download with Telegram
 
-Use [@VidFetchRobot](https://t.me/VidFetchRobot) on Telegram to download video or audio. The bot is maintained separately and its source code is private. The Android app processes downloads on-device independently.
+**Video and audio downloads, right in Telegram.** Send a link to [@VidFetchRobot](https://t.me/VidFetchRobot), choose a video quality or **Audio only**, and get your file in chat. Follow each download's progress and cancel individual downloads when you need to.
 
-The current Android 0.4.0 source adds individual cancellation, two concurrent downloads with per-transfer progress, and a **Paste link** home-screen widget.
+You can also type `@VidFetchRobot` followed by a link in another Telegram chat to get started without switching conversations.
+
+[**Try VidFetch on Telegram →**](https://t.me/VidFetchRobot)
 
 ## Repository layout
 
